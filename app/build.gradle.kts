@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.trebronwayne.droplink"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("droplinkVersionCode").orNull?.toInt() ?: 4
-        versionName = providers.gradleProperty("droplinkVersionName").orNull ?: "0.4.0"
+        versionCode = providers.gradleProperty("droplinkVersionCode").orNull?.toInt() ?: 5
+        versionName = providers.gradleProperty("droplinkVersionName").orNull ?: "0.5.0"
     }
 
     if (!releaseKeystorePath.isNullOrBlank()) {
@@ -44,7 +44,7 @@ android {
 
     packaging {
         resources {
-            excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/INDEX.LIST", "META-INF/io.netty.versions.properties", "META-INF/DEPENDENCIES")
+            excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/INDEX.LIST", "META-INF/io.netty.versions.properties", "META-INF/DEPENDENCIES", "META-INF/versions/9/OSGI-INF/MANIFEST.MF")
         }
     }
 
@@ -74,5 +74,6 @@ dependencies {
     implementation("io.ktor:ktor-server-core:3.0.3")
     implementation("io.ktor:ktor-server-cio:3.0.3")
     implementation("org.slf4j:slf4j-nop:2.0.16")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

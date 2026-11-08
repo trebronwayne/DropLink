@@ -191,7 +191,7 @@ fun DropDeviceCard(
     nodeId: String,
     isHosting: Boolean,
     port: Int,
-    pin: String?,
+    fingerprint: String,
     addresses: List<String>,
     onStartHosting: () -> Unit,
     onStopHosting: () -> Unit,
@@ -222,12 +222,13 @@ fun DropDeviceCard(
                     addresses.forEach { DropText(it, style = type.bodyStrong, fontFamily = FontFamily.Monospace) }
                 }
             }
-            if (pin != null) {
-                Column(verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
-                    DropText("Access code", style = type.caption, color = secondary)
-                    DropText(pin, style = type.title, fontFamily = FontFamily.Monospace)
-                    DropText("Enter this code on the web page. It changes each time hosting starts.", style = type.caption, color = secondary)
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
+                DropText("Certificate fingerprint", style = type.caption, color = secondary)
+                DropText(fingerprint.take(23) + "…", style = type.bodyStrong, fontFamily = FontFamily.Monospace)
+                DropText(
+                    "Browsers warn that this certificate is self-signed. That is expected. Before continuing, compare this fingerprint with the one in the browser's certificate details.",
+                    style = type.caption, color = secondary
+                )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
                 DropButton(

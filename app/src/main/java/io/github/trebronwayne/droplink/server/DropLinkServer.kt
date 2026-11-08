@@ -4,7 +4,10 @@ import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import io.github.trebronwayne.droplink.core.NodeIdentity
+import io.github.trebronwayne.droplink.core.PairStatus
+import io.github.trebronwayne.droplink.core.Pairing
 import io.github.trebronwayne.droplink.core.SharedFolders
+import io.github.trebronwayne.droplink.core.TlsIdentity
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.HttpHeaders
@@ -15,6 +18,7 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.engine.sslConnector
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
@@ -37,74 +41,75 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 
-/** Temporary access control until secure pairing exists: a per-session PIN plus login rate limiting. */
-class ServerAccess(val pin: String) {
-    val sessions: MutableSet<String> = ConcurrentHashMap.newKeySet()
-    private var failures = 0
-    private var lockedUntil = 0L
-
-    /** Returns HTTP status and, on success, a new session token. */
-    @Synchronized
-    fun login(candidate: String): Pair<Int, String?> {
-        val now = System.currentTimeMillis()
-        if (now < lockedUntil) return 429 to null
-        if (MessageDigest.isEqual(candidate.toByteArray(), pin.toByteArray())) {
-            failures = 0
-            val token = ByteArray(32).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
-            sessions.add(token)
-            return 200 to token
-        }
-        failures += 1
-        if (failures >= 5) {
-            failures = 0
-            lockedUntil = now + 60_000
-        }
-        return 401 to null
-    }
-
-    companion object {
-        fun newPin(): String = "%06d".format(SecureRandom().nextInt(1_000_000))
-    }
-}
-
 object DropLinkServer {
     private const val COOKIE = "dl_session"
     private val RISKY_INLINE = setOf("text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml", "text/javascript", "application/javascript")
 
-    fun create(context: Context, port: Int, access: ServerAccess): EmbeddedServer<*, *> {
+    fun create(context: Context, port: Int, tls: TlsIdentity.Material): EmbeddedServer<*, *> {
         System.setProperty("io.ktor.development", "false")
         val app = context.applicationContext
-        return embeddedServer(CIO, port = port, host = "0.0.0.0") {
+        val httpsPort = port
+        return embeddedServer(CIO, configure = {
+            // HTTPS only. Ktor may clear the arrays it is given, so hand out fresh copies each time.
+            sslConnector(
+                keyStore = tls.keyStore,
+                keyAlias = TlsIdentity.ALIAS,
+                keyStorePassword = { tls.password.copyOf() },
+                privateKeyPassword = { tls.password.copyOf() }
+            ) {
+                host = "0.0.0.0"
+                this.port = httpsPort
+            }
+        }) {
             routing {
                 get("/health") {
-                    call.json(HttpStatusCode.OK, "{\"service\":\"DropLink\",\"status\":\"online\",\"protocol\":2}")
+                    call.json(HttpStatusCode.OK, "{\"service\":\"DropLink\",\"status\":\"online\",\"protocol\":3}")
                 }
-                post("/api/login") {
-                    val pin = try { JSONObject(call.receiveText()).optString("pin") } catch (_: Exception) { "" }
-                    val (status, token) = access.login(pin)
-                    if (token != null) {
-                        call.response.cookies.append(
-                            Cookie(COOKIE, token, path = "/", httpOnly = true, extensions = mapOf("SameSite" to "Strict"))
-                        )
-                        call.json(HttpStatusCode.OK, "{\"ok\":true}")
+                post("/api/pair/request") {
+                    val name = try { JSONObject(call.receiveText()).optString("name") } catch (_: Exception) { "" }
+                    val request = Pairing.create(name)
+                    if (request == null) {
+                        call.json(HttpStatusCode.TooManyRequests, "{\"error\":\"too_many_requests\"}")
                     } else {
-                        call.json(HttpStatusCode.fromValue(status), "{\"error\":\"${if (status == 429) "locked" else "invalid_pin"}\"}")
+                        call.json(HttpStatusCode.OK, JSONObject().put("id", request.id).put("code", request.code).toString())
+                    }
+                }
+                get("/api/pair/status") {
+                    val id = call.request.queryParameters["id"].orEmpty()
+                    when (Pairing.statusOf(id)) {
+                        PairStatus.Pending -> call.json(HttpStatusCode.OK, "{\"status\":\"pending\"}")
+                        PairStatus.Approved -> {
+                            val token = Pairing.claim(id)
+                            if (token == null) {
+                                call.json(HttpStatusCode.OK, "{\"status\":\"expired\"}")
+                            } else {
+                                call.response.cookies.append(
+                                    Cookie(
+                                        COOKIE, token, path = "/", secure = true, httpOnly = true,
+                                        maxAge = 31_536_000, extensions = mapOf("SameSite" to "Strict")
+                                    )
+                                )
+                                call.json(HttpStatusCode.OK, "{\"status\":\"approved\"}")
+                            }
+                        }
+                        PairStatus.Denied -> call.json(HttpStatusCode.OK, "{\"status\":\"denied\"}")
+                        else -> call.json(HttpStatusCode.OK, "{\"status\":\"expired\"}")
                     }
                 }
                 get("/api/info") {
-                    if (!call.authorized(access)) return@get
+                    if (!call.authorized()) return@get
                     val id = withContext(Dispatchers.IO) { NodeIdentity.getOrCreateNodeId(app) }
-                    call.json(HttpStatusCode.OK, JSONObject().put("nodeId", id).put("protocol", 2).toString())
+                    call.json(HttpStatusCode.OK, JSONObject().put("nodeId", id).put("protocol", 3).toString())
                 }
                 get("/api/shares") {
-                    if (!call.authorized(access)) return@get
+                    if (!call.authorized()) return@get
                     val array = withContext(Dispatchers.IO) {
                         JSONArray().also { a -> SharedFolders.list(app).forEach { a.put(JSONObject().put("id", it.id).put("name", it.name)) } }
                     }
                     call.json(HttpStatusCode.OK, array.toString())
                 }
                 get("/api/browse") {
-                    if (!call.authorized(access)) return@get
+                    if (!call.authorized()) return@get
                     val share = call.request.queryParameters["share"].orEmpty()
                     val path = call.request.queryParameters["path"].orEmpty()
                     val body = withContext(Dispatchers.IO) {
@@ -127,7 +132,7 @@ object DropLinkServer {
                     if (body == null) call.json(HttpStatusCode.NotFound, "{\"error\":\"not_found\"}") else call.json(HttpStatusCode.OK, body)
                 }
                 get("/api/file") {
-                    if (!call.authorized(access)) return@get
+                    if (!call.authorized()) return@get
                     val share = call.request.queryParameters["share"].orEmpty()
                     val path = call.request.queryParameters["path"].orEmpty()
                     val download = call.request.queryParameters["download"] == "1"
@@ -198,9 +203,9 @@ object DropLinkServer {
     private suspend fun ApplicationCall.json(status: HttpStatusCode, body: String) =
         respondText(body, ContentType.Application.Json, status)
 
-    private suspend fun ApplicationCall.authorized(access: ServerAccess): Boolean {
+    private suspend fun ApplicationCall.authorized(): Boolean {
         val token = request.cookies[COOKIE]
-        if (token != null && access.sessions.contains(token)) return true
+        if (token != null && Pairing.isAuthorized(token)) return true
         json(HttpStatusCode.Unauthorized, "{\"error\":\"unauthorized\"}")
         return false
     }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+- HTTPS only: the server uses a self-signed RSA certificate created on first use and kept in app-private storage. The certificate's SHA-256 fingerprint is shown in the app so it can be compared with the browser's certificate details.
+- Pairing replaces the temporary access code: a device requests access, both screens show the same 6-digit confirmation code, and the phone owner approves or denies. Approved devices get a long-lived session token (only its hash is stored). Pending requests expire after 2 minutes and are rate limited. Trusted devices can be revoked in Settings.
+- Pairing notification (high priority) when a request arrives.
+- Discovery: nodes advertise `_droplink._tcp` with Android NSD while hosting; the Servers screen lists nodes found on the network and can open them in the browser.
+- Web client: pairing screen replaces the code entry.
+- CI: release workflow no longer fails on the retired `tools` SDK package; APK signature check uses the explicit build-tools path.
+
 ## 0.4.0
 - Real HTTP server (Ktor CIO) replaces the raw socket. `/health` stays open; everything else needs a session.
 - Shared folders: pick folders with the system folder picker (Storage Access Framework). Access is read-only and limited to those folders.

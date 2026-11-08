@@ -13,7 +13,7 @@ object NetworkAddresses {
                 Collections.list(ni.inetAddresses)
                     .filterIsInstance<Inet4Address>()
                     .filter { it.isSiteLocalAddress }
-                    .map { "http://${it.hostAddress}:$port/" }
+                    .map { "https://${it.hostAddress}:$port/" }
             }
             .distinct()
     } catch (_: Exception) {

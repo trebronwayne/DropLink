@@ -26,7 +26,9 @@ button:disabled { opacity: .5; cursor: default; }
 .center { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
 .login { width: min(380px, 100%); padding: 24px; display: grid; gap: 16px; }
 .login p { margin: 0; }
-.pin { font: 600 28px/36px ui-monospace, Consolas, monospace; letter-spacing: .4em; text-align: center;
+.text { font: inherit; padding: 8px 12px; border: 1px solid var(--stroke); border-radius: 4px; background: var(--bg); color: var(--text); }
+.text:focus { outline: 2px solid var(--brand); }
+.pin { font: 600 28px/36px ui-monospace, Consolas, monospace; letter-spacing: .3em; text-align: center;
   padding: 8px; border: 1px solid var(--stroke); border-radius: 4px; background: var(--bg); color: var(--text); }
 .pin:focus { outline: 2px solid var(--brand); }
 .top { display: flex; align-items: center; gap: 16px; padding: 12px 24px; border-bottom: 1px solid var(--stroke); position: sticky; top: 0; background: var(--bg); z-index: 1; }

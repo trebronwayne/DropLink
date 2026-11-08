@@ -41,3 +41,9 @@ Camera service must be started by a visible user action, use required Android pe
 
 ## Incident response
 Provide immediate disconnect, revoke-node and revoke-service controls. Record security-relevant events without logging file contents, credentials or private media.
+
+## Implemented in v0.5.0
+- Transport: TLS with a per-node self-signed certificate. There is no certificate authority on a local network, so trust comes from comparing the SHA-256 fingerprint shown in the app with the one the client sees. DropLink-to-DropLink clients will pin it automatically.
+- Pairing: request, matching confirmation code on both screens, explicit approval on the phone, then a session token. Only a SHA-256 hash of the token is stored on the phone. Revocation takes effect immediately.
+- Limits: 3 pending requests, 5 requests per minute, 2 minute expiry.
+- Known limitations: the TLS private key is in app-private storage protected by the Android sandbox, not by hardware. The confirmation code stops approving the wrong request but does not by itself stop an active man-in-the-middle, which is why the fingerprint comparison matters. Audit logs and per-service permissions are still to do.

@@ -14,4 +14,4 @@ Commit the generated `app/src/main/assets/web` so the Android build does not nee
 Set the proxy target in `vite.config.ts` to the phone's address, run `npm run dev`, and open the dev URL.
 
 ## Features
-Access-code login, shared folder list, folder browsing with breadcrumbs (hash routing), preview for images, video, audio, PDF and text, and download for everything.
+Pairing request with on-phone approval, shared folder list, folder browsing with breadcrumbs (hash routing), preview for images, video, audio, PDF and text, and download for everything.

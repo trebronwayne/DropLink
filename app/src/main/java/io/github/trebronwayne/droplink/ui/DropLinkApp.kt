@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
@@ -57,7 +58,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import io.github.trebronwayne.droplink.BuildConfig
+import io.github.trebronwayne.droplink.core.DiscoveredNode
+import io.github.trebronwayne.droplink.core.PairRequest
 import io.github.trebronwayne.droplink.core.SharedFolder
+import io.github.trebronwayne.droplink.core.TrustedDevice
 import io.github.trebronwayne.droplink.service.LocalServerService
 import io.github.trebronwayne.droplink.ui.components.DropButton
 import io.github.trebronwayne.droplink.ui.components.DropButtonStyle
@@ -71,6 +75,8 @@ import io.github.trebronwayne.droplink.ui.components.DropText
 import io.github.trebronwayne.droplink.ui.theme.DropRadius
 import io.github.trebronwayne.droplink.ui.theme.DropSpacing
 import io.github.trebronwayne.droplink.ui.theme.DropTheme
+import java.text.DateFormat
+import java.util.Date
 
 enum class Destination(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     Home("Home", Icons.Outlined.Home, Icons.Filled.Home),
@@ -82,12 +88,22 @@ enum class Destination(val label: String, val icon: ImageVector, val selectedIco
 
 data class HostUi(
     val isHosting: Boolean,
-    val pin: String?,
     val addresses: List<String>,
+    val fingerprint: String,
     val onStart: () -> Unit,
     val onStop: () -> Unit,
     val onRefresh: () -> Unit
 )
+
+data class PairingUi(
+    val requests: List<PairRequest>,
+    val trusted: List<TrustedDevice>,
+    val onApprove: (String) -> Unit,
+    val onDeny: (String) -> Unit,
+    val onRevoke: (String) -> Unit
+)
+
+data class NetworkUi(val nodes: List<DiscoveredNode>, val onOpen: (DiscoveredNode) -> Unit)
 
 data class FilesUi(
     val folders: List<SharedFolder>,
@@ -96,13 +112,13 @@ data class FilesUi(
 )
 
 @Composable
-fun DropLinkApp(nodeId: String, host: HostUi, files: FilesUi) {
+fun DropLinkApp(nodeId: String, host: HostUi, files: FilesUi, pairing: PairingUi, network: NetworkUi) {
     var current by rememberSaveable { mutableStateOf(Destination.Home) }
     Surface(modifier = Modifier.fillMaxSize(), color = DropTheme.colors.background) {
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             val wide = maxWidth >= 600.dp
             val screen: @Composable () -> Unit = {
-                ScreenHost(current, wide, nodeId, host, files) { current = it }
+                ScreenHost(current, wide, nodeId, host, files, pairing, network) { current = it }
             }
             if (wide) {
                 Row(Modifier.fillMaxSize()) {
@@ -126,19 +142,22 @@ private fun ScreenHost(
     nodeId: String,
     host: HostUi,
     files: FilesUi,
+    pairing: PairingUi,
+    network: NetworkUi,
     onNavigate: (Destination) -> Unit
 ) {
     when (destination) {
         Destination.Home -> ScreenScaffold("Home", "Your phone. Your server. Your network.", wide) {
-            DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.pin, host.addresses, host.onStart, host.onStop, host.onRefresh)
+            pairing.requests.forEach { PairingRequestCard(it, pairing.onApprove, pairing.onDeny) }
+            DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh)
             DropSectionTitle("Network workspace")
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
-                DropInfoCard(Icons.Filled.Dns, "Servers", "Discovery comes next", Modifier.weight(1f)) { onNavigate(Destination.Servers) }
+                DropInfoCard(Icons.Filled.Dns, "Servers", "${network.nodes.size} found nearby", Modifier.weight(1f)) { onNavigate(Destination.Servers) }
                 DropInfoCard(Icons.Filled.Folder, "Files", "${files.folders.size} shared folder(s)", Modifier.weight(1f)) { onNavigate(Destination.Files) }
             }
         }
-        Destination.Servers -> ScreenScaffold("Servers", "Nodes on your network", wide) {
-            DropEmptyState(Icons.Filled.Dns, "No servers found yet", "Discovery and secure pairing arrive in the next stage. Start hosting on this phone to be ready.")
+        Destination.Servers -> ScreenScaffold("Servers", "DropLink nodes on your network", wide) {
+            ServersContent(network)
         }
         Destination.Files -> ScreenScaffold("Files", "Folders you share from this phone", wide) {
             FilesContent(files)
@@ -147,7 +166,54 @@ private fun ScreenHost(
             DropEmptyState(Icons.Filled.SwapVert, "No transfers", "Resumable file transfers will appear here.")
         }
         Destination.Settings -> ScreenScaffold("Settings", "Identity, security and about", wide) {
-            SettingsContent(nodeId)
+            SettingsContent(nodeId, host.fingerprint, pairing)
+        }
+    }
+}
+
+@Composable
+private fun PairingRequestCard(request: PairRequest, onApprove: (String) -> Unit, onDeny: (String) -> Unit) {
+    val type = DropTheme.type
+    val secondary = DropTheme.colors.textSecondary
+    DropCard {
+        DropText("Pairing request", style = type.subtitle)
+        DropText("${request.deviceName} wants to browse your shared folders.", style = type.body)
+        DropText(request.code, style = type.title, fontFamily = FontFamily.Monospace)
+        DropText("Approve only if this code matches the one shown on that device.", style = type.caption, color = secondary)
+        Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+            DropButton("Deny", { onDeny(request.id) }, Modifier.weight(1f), DropButtonStyle.Secondary)
+            DropButton("Approve", { onApprove(request.id) }, Modifier.weight(1f), DropButtonStyle.Primary)
+        }
+    }
+}
+
+@Composable
+private fun ServersContent(network: NetworkUi) {
+    val type = DropTheme.type
+    val secondary = DropTheme.colors.textSecondary
+    if (network.nodes.isEmpty()) {
+        DropEmptyState(
+            Icons.Filled.Dns, "No other DropLink nodes found",
+            "Make sure the other phone is hosting and both are on the same Wi-Fi or hotspot. Some phones cannot see devices from the hotspot side; you can still type the address shown on the other phone."
+        )
+    } else {
+        network.nodes.forEach { node ->
+            DropCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    DropIconTile(Icons.Filled.Dns)
+                    Column(Modifier.weight(1f).padding(start = DropSpacing.m)) {
+                        DropText(node.name, style = type.bodyStrong)
+                        DropText("${node.host}:${node.port}", style = type.caption, color = secondary, fontFamily = FontFamily.Monospace)
+                    }
+                }
+                if (node.fingerprint.length >= 16) {
+                    DropText(
+                        "Fingerprint " + node.fingerprint.chunked(2).take(8).joinToString(":") + "…",
+                        style = type.caption, color = secondary, fontFamily = FontFamily.Monospace
+                    )
+                }
+                DropButton("Open in browser", { network.onOpen(node) }, Modifier.fillMaxWidth(), DropButtonStyle.Secondary, Icons.Outlined.OpenInBrowser)
+            }
         }
     }
 }
@@ -179,7 +245,7 @@ private fun FilesContent(files: FilesUi) {
 }
 
 @Composable
-private fun SettingsContent(nodeId: String) {
+private fun SettingsContent(nodeId: String, fingerprint: String, pairing: PairingUi) {
     val clipboard = LocalClipboardManager.current
     val type = DropTheme.type
     val secondary = DropTheme.colors.textSecondary
@@ -195,6 +261,26 @@ private fun SettingsContent(nodeId: String) {
             style = DropButtonStyle.Secondary, icon = Icons.Outlined.ContentCopy,
             enabled = nodeId.startsWith("dl-")
         )
+    }
+    DropCard {
+        DropText("Trusted devices", style = type.subtitle)
+        if (pairing.trusted.isEmpty()) {
+            DropText("No devices are paired yet. When a browser asks to connect, approve it from the Home screen.", style = type.caption, color = secondary)
+        }
+        pairing.trusted.forEach { device ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    DropText(device.name, style = type.bodyStrong)
+                    DropText("Paired ${DateFormat.getDateInstance().format(Date(device.createdAt))}", style = type.caption, color = secondary)
+                }
+                DropButton("Revoke", { pairing.onRevoke(device.id) }, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Delete)
+            }
+        }
+    }
+    DropCard {
+        DropText("Certificate fingerprint (SHA-256)", style = type.subtitle)
+        DropText(fingerprint, style = type.caption, fontFamily = FontFamily.Monospace)
+        DropText("Compare this with the certificate details your browser shows before trusting this phone.", style = type.caption, color = secondary)
     }
     DropCard {
         DropText("About", style = type.subtitle)

@@ -38,9 +38,17 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The default package list includes the retired "tools" package, which current
+          # sdkmanager releases no longer provide and which makes this step fail.
+          packages: ''
 
-      - name: Install Android build tools
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Install Android platform and build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -128,7 +136,7 @@ jobs:
           set -euo pipefail
           apk="app/build/outputs/apk/release/app-release.apk"
           test -s "$apk"
-          apksigner verify --verbose "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$apk"
           mkdir -p release-artifacts
           cp "$apk" "release-artifacts/DropLink-${{ steps.version.outputs.name }}-release.apk"
           cd release-artifacts

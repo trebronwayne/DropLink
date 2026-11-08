@@ -32,29 +32,63 @@ function kindOf(e: Entry): Kind {
 }
 const BADGE: Record<Kind, string> = { folder: '📁', image: '🖼️', video: '🎬', audio: '🎵', pdf: '📕', text: '📄', file: '📦' }
 
-function Login({ onDone }: { onDone: () => void }) {
-  const [pin, setPin] = useState('')
-  const [error, setError] = useState('')
+function guessDeviceName(): string {
+  const ua = navigator.userAgent
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser'
+  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : 'device'
+  return `${browser} on ${os}`
+}
+
+function Pair({ onDone }: { onDone: () => void }) {
+  const [name, setName] = useState(guessDeviceName())
+  const [request, setRequest] = useState<{ id: string; code: string } | null>(null)
+  const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
-  const submit = async (ev: React.FormEvent) => {
+
+  const start = async (ev: React.FormEvent) => {
     ev.preventDefault()
-    setBusy(true); setError('')
-    try { await api.login(pin.trim()); onDone() }
+    setBusy(true); setMessage('')
+    try { setRequest(await api.pairRequest(name.trim())) }
     catch (e) {
-      setError(e instanceof LockedError ? 'Too many attempts. Wait a minute and try again.'
-        : e instanceof AuthError ? 'That access code is not correct.' : 'Could not reach the phone.')
+      setMessage(e instanceof LockedError ? 'Too many requests. Wait a minute, then try again.' : 'Could not reach the phone.')
     } finally { setBusy(false) }
   }
+
+  useEffect(() => {
+    if (!request) return
+    const timer = window.setInterval(async () => {
+      try {
+        const status = await api.pairStatus(request.id)
+        if (status === 'approved') { window.clearInterval(timer); onDone() }
+        else if (status !== 'pending') {
+          window.clearInterval(timer); setRequest(null)
+          setMessage(status === 'denied' ? 'The request was denied on the phone.' : 'The request expired. Try again.')
+        }
+      } catch { /* keep polling */ }
+    }, 1500)
+    return () => window.clearInterval(timer)
+  }, [request, onDone])
+
   return (
     <main className="center">
-      <form className="card login" onSubmit={submit}>
+      <div className="card login">
         <h1>DropLink</h1>
-        <p className="muted">Enter the access code shown on the phone to browse its shared folders.</p>
-        <input className="pin" inputMode="numeric" autoComplete="one-time-code" maxLength={6} autoFocus
-          placeholder="000000" value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} aria-label="Access code" />
-        {error && <p className="error" role="alert">{error}</p>}
-        <button className="primary" disabled={busy || pin.length < 6}>{busy ? 'Checking…' : 'Connect'}</button>
-      </form>
+        {!request ? (
+          <form onSubmit={start} className="login">
+            <p className="muted">Ask this phone for access. You will need to approve the request on the phone.</p>
+            <label className="muted" htmlFor="device">Device name</label>
+            <input id="device" className="text" value={name} maxLength={40} onChange={e => setName(e.target.value)} />
+            {message && <p className="error" role="alert">{message}</p>}
+            <button className="primary" disabled={busy || !name.trim()}>{busy ? 'Sending…' : 'Request access'}</button>
+          </form>
+        ) : (
+          <>
+            <p className="muted">On the phone, check that this code matches, then tap Approve.</p>
+            <div className="pin" aria-live="polite">{request.code}</div>
+            <p className="muted">Waiting for approval…</p>
+          </>
+        )}
+      </div>
     </main>
   )
 }
@@ -144,7 +178,7 @@ export default function App() {
   }, [])
 
   if (authed === null) return <main className="center"><p className="muted">Connecting…</p></main>
-  if (!authed) return <Login onDone={load} />
+  if (!authed) return <Pair onDone={load} />
 
   const current = shares.find(s => s.id === route.share)
   return (

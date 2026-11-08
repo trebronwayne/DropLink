@@ -15,8 +15,11 @@ async function request(url: string, init?: RequestInit): Promise<Response> {
 const q = encodeURIComponent
 
 export const api = {
-  async login(pin: string): Promise<void> {
-    await request('/api/login', { method: 'POST', body: JSON.stringify({ pin }) })
+  async pairRequest(name: string): Promise<{ id: string; code: string }> {
+    return (await request('/api/pair/request', { method: 'POST', body: JSON.stringify({ name }) })).json()
+  },
+  async pairStatus(id: string): Promise<'pending' | 'approved' | 'denied' | 'expired'> {
+    return (await request(`/api/pair/status?id=${q(id)}`)).json().then(r => r.status)
   },
   async info(): Promise<{ nodeId: string }> {
     return (await request('/api/info')).json()

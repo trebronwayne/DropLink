@@ -37,16 +37,15 @@ Use stable machine-readable error codes such as:
 - `UNSUPPORTED_PROTOCOL`
 - `TRANSFER_INTERRUPTED`
 
-## HTTP API (protocol 2, v0.4.0)
-All routes except `/health` and static web assets require the `dl_session` cookie returned by login.
+## HTTP API (protocol 3, v0.5.0)
+HTTPS on port 47831. Every route except `/health`, `/api/pair/*` and static web assets needs the `dl_session` cookie (Secure, HttpOnly, SameSite=Strict) issued after a pairing request is approved.
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | Unauthenticated status: service, status, protocol |
-| POST | `/api/login` | Body `{"pin":"123456"}`. 200 sets the session cookie; 401 wrong code; 429 locked for 60 s after 5 failures |
+| POST | `/api/pair/request` | Body `{"name":"Chrome on Android"}`. Returns `{id, code}`; 429 when rate limited |
+| GET | `/api/pair/status?id=<id>` | `pending`, `approved` (sets the session cookie once), `denied` or `expired` |
 | GET | `/api/info` | This node's ID |
 | GET | `/api/shares` | Shared folders `[{id, name}]` |
 | GET | `/api/browse?share=<id>&path=<relative>` | Folder listing `[{name, isDir, size, mime, modified}]` |
 | GET | `/api/file?share=<id>&path=<relative>[&download=1]` | File bytes, supports `Range`. HTML, SVG and script types are always sent as downloads |
-
-Transport is plain HTTP until secure pairing and TLS are implemented; the access code and files are not encrypted on the network.
