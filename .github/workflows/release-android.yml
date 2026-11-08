@@ -100,7 +100,8 @@ jobs:
           echo "code=$version_code" >> "$GITHUB_OUTPUT"
           echo "Releasing v$version (versionCode $version_code)"
 
-      - name: Prepare signing key
+      - name: Prepare signing key (falls back to a debug build)
+        id: signing
         shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -109,39 +110,55 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          missing=()
           for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
-            if [[ -z "${!name}" ]]; then
-              echo "Required GitHub Actions secret $name is missing." >&2
-              exit 1
-            fi
+            if [[ -z "${!name}" ]]; then missing+=("$name"); fi
           done
+          if (( ${#missing[@]} > 0 )); then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Signing secrets missing::Missing: ${missing[*]}. Building a DEBUG APK instead. Add all four ANDROID_* secrets for a signed release."
+            exit 0
+          fi
           echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/droplink-release.jks"
           echo "DROPLINK_KEYSTORE_PATH=$RUNNER_TEMP/droplink-release.jks" >> "$GITHUB_ENV"
           echo "DROPLINK_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
           echo "DROPLINK_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
           echo "DROPLINK_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Build signed release APK
+      - name: Build APK
+        shell: bash
         env:
           VERSION_NAME: ${{ steps.version.outputs.name }}
           VERSION_CODE: ${{ steps.version.outputs.code }}
+          SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
-          gradle --no-daemon clean :app:assembleRelease \
+          set -euo pipefail
+          if [[ "$SIGNED" == "true" ]]; then task=":app:assembleRelease"; else task=":app:assembleDebug"; fi
+          gradle --no-daemon clean "$task" \
             -PdroplinkVersionName="$VERSION_NAME" \
             -PdroplinkVersionCode="$VERSION_CODE"
 
       - name: Verify APK signature and prepare checksum
         id: artifact
         shell: bash
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
         run: |
           set -euo pipefail
-          apk="app/build/outputs/apk/release/app-release.apk"
+          if [[ "$SIGNED" == "true" ]]; then
+            apk="app/build/outputs/apk/release/app-release.apk"; label="release"
+          else
+            apk="app/build/outputs/apk/debug/app-debug.apk"; label="debug"
+          fi
           test -s "$apk"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$apk"
           mkdir -p release-artifacts
-          cp "$apk" "release-artifacts/DropLink-${{ steps.version.outputs.name }}-release.apk"
+          cp "$apk" "release-artifacts/DropLink-${VERSION_NAME}-${label}.apk"
           cd release-artifacts
           sha256sum *.apk > SHA256SUMS.txt
+          echo "label=$label" >> "$GITHUB_OUTPUT"
 
       - name: Create and push version tag
         env:
@@ -156,7 +173,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: DropLink ${{ steps.version.outputs.tag }}
+          name: DropLink ${{ steps.version.outputs.tag }}${{ steps.signing.outputs.signed != 'true' && ' (debug build)' || '' }}
+          prerelease: ${{ steps.signing.outputs.signed != 'true' }}
+          body: ${{ steps.signing.outputs.signed != 'true' && 'Debug build signed with a temporary key because the release signing secrets were not configured. It installs next to a signed release (different app ID) but cannot update a previous debug build; uninstall that first.' || '' }}
           generate_release_notes: true
           files: |
             release-artifacts/*.apk
