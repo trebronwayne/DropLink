@@ -8,25 +8,14 @@ import io.github.trebronwayne.droplink.core.PairStatus
 import io.github.trebronwayne.droplink.core.Pairing
 import io.github.trebronwayne.droplink.core.SharedFolders
 import io.github.trebronwayne.droplink.core.TlsIdentity
-import io.ktor.http.ContentType
-import io.ktor.http.Cookie
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
-import io.ktor.http.defaultForFilePath
-import io.ktor.server.application.ApplicationCall
+import io.ktor.http.*
+import io.ktor.server.application.*
 import io.ktor.server.cio.CIO
-import io.ktor.server.engine.EmbeddedServer
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.engine.sslConnector
-import io.ktor.server.request.receiveText
-import io.ktor.server.response.header
-import io.ktor.server.response.respond
-import io.ktor.server.response.respondBytes
-import io.ktor.server.response.respondText
-import io.ktor.server.routing.get
-import io.ktor.server.routing.post
-import io.ktor.server.routing.routing
+import io.ktor.server.engine.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.jvm.javaio.toByteReadChannel
 import kotlinx.coroutines.Dispatchers
@@ -37,9 +26,6 @@ import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.URLEncoder
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.util.concurrent.ConcurrentHashMap
 
 object DropLinkServer {
     private const val COOKIE = "dl_session"
@@ -49,7 +35,7 @@ object DropLinkServer {
         System.setProperty("io.ktor.development", "false")
         val app = context.applicationContext
         val httpsPort = port
-        return embeddedServer(CIO, configure = {
+        return embeddedServer(CIO, applicationEnvironment { }, {
             // HTTPS only. Ktor may clear the arrays it is given, so hand out fresh copies each time.
             sslConnector(
                 keyStore = tls.keyStore,
@@ -145,12 +131,12 @@ object DropLinkServer {
                     val length = file.length()
                     val mime = file.type ?: ContentType.defaultForFilePath(name).toString()
                     val type = try { ContentType.parse(mime) } catch (_: Exception) { ContentType.Application.OctetStream }
-                    val inline = !download && mime.substringBefore(';').lowercase() !in RISKY_INLINE
+                    val showInline = !download && mime.substringBefore(';').lowercase() !in RISKY_INLINE
                     val ascii = name.replace(Regex("[^\\x20-\\x7E]|[\"\\\\]"), "_")
                     val encoded = URLEncoder.encode(name, "UTF-8").replace("+", "%20")
                     call.response.header(
                         HttpHeaders.ContentDisposition,
-                        "${if (inline) "inline" else "attachment"}; filename=\"$ascii\"; filename*=UTF-8''$encoded"
+                        "${if (showInline) "inline" else "attachment"}; filename=\"$ascii\"; filename*=UTF-8''$encoded"
                     )
                     call.response.header(HttpHeaders.AcceptRanges, "bytes")
                     call.response.header("X-Content-Type-Options", "nosniff")

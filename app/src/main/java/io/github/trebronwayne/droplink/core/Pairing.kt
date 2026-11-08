@@ -85,15 +85,17 @@ object Pairing {
     fun deny(id: String) = transition(id, PairStatus.Denied)
 
     /** Turns an approved request into a session token (returned once, never stored in clear). */
-    fun claim(id: String): String? = synchronized(lock) {
-        purge(System.currentTimeMillis())
-        val request = _requests.value.firstOrNull { it.id == id && it.status == PairStatus.Approved } ?: return null
-        val token = hex(32)
-        val list = _trusted.value + TrustedDevice(hex(8), request.deviceName, sha256(token), System.currentTimeMillis())
-        setTrusted(list)
-        persist(list)
-        _requests.value = _requests.value.filter { it.id != id }
-        token
+    fun claim(id: String): String? {
+        synchronized(lock) {
+            purge(System.currentTimeMillis())
+            val request = _requests.value.firstOrNull { it.id == id && it.status == PairStatus.Approved } ?: return null
+            val token = hex(32)
+            val list = _trusted.value + TrustedDevice(hex(8), request.deviceName, sha256(token), System.currentTimeMillis())
+            setTrusted(list)
+            persist(list)
+            _requests.value = _requests.value.filter { it.id != id }
+            return token
+        }
     }
 
     fun isAuthorized(token: String): Boolean = tokenHashes.contains(sha256(token))
