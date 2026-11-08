@@ -1,0 +1,154 @@
+name: Build signed Android release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semantic version increment (first release is always v1.0.0)
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+concurrency:
+  group: droplink-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign and publish APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build tools
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Calculate next semantic version
+        id: version
+        shell: bash
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          latest_tag="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n 1)"
+          if [[ -z "$latest_tag" ]]; then
+            major=1; minor=0; patch=0
+          else
+            if [[ ! "$latest_tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "Latest tag '$latest_tag' is not a valid vMAJOR.MINOR.PATCH tag." >&2
+              exit 1
+            fi
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            patch="${BASH_REMATCH[3]}"
+            if (( major < 1 )); then
+              major=1; minor=0; patch=0
+            else
+              case "$BUMP" in
+                major) major=$((major + 1)); minor=0; patch=0 ;;
+                minor) minor=$((minor + 1)); patch=0 ;;
+                patch) patch=$((patch + 1)) ;;
+                *) echo "Unsupported version bump: $BUMP" >&2; exit 1 ;;
+              esac
+            fi
+          fi
+          if (( major > 2100 || minor > 999 || patch > 999 )); then
+            echo "Version exceeds the configured Android versionCode limits." >&2
+            exit 1
+          fi
+          version="${major}.${minor}.${patch}"
+          version_code=$((major * 1000000 + minor * 1000 + patch))
+          if (( version_code > 2100000000 )); then
+            echo "Computed Android versionCode exceeds the Android limit." >&2
+            exit 1
+          fi
+          echo "name=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "code=$version_code" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$version (versionCode $version_code)"
+
+      - name: Prepare signing key
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "Required GitHub Actions secret $name is missing." >&2
+              exit 1
+            fi
+          done
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/droplink-release.jks"
+          echo "DROPLINK_KEYSTORE_PATH=$RUNNER_TEMP/droplink-release.jks" >> "$GITHUB_ENV"
+          echo "DROPLINK_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "DROPLINK_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "DROPLINK_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          gradle --no-daemon clean :app:assembleRelease \
+            -PdroplinkVersionName="$VERSION_NAME" \
+            -PdroplinkVersionCode="$VERSION_CODE"
+
+      - name: Verify APK signature and prepare checksum
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/release/app-release.apk"
+          test -s "$apk"
+          apksigner verify --verbose "$apk"
+          mkdir -p release-artifacts
+          cp "$apk" "release-artifacts/DropLink-${{ steps.version.outputs.name }}-release.apk"
+          cd release-artifacts
+          sha256sum *.apk > SHA256SUMS.txt
+
+      - name: Create and push version tag
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" -m "DropLink $RELEASE_TAG"
+          git push origin "$RELEASE_TAG"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: DropLink ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            release-artifacts/*.apk
+            release-artifacts/SHA256SUMS.txt
