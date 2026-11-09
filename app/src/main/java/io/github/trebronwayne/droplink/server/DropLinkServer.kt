@@ -34,28 +34,15 @@ object DropLinkServer {
     private const val COOKIE = "dl_session"
     private val RISKY_INLINE = setOf("text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml", "text/javascript", "application/javascript")
 
-    fun create(context: Context, port: Int, tls: TlsIdentity.Material?): EmbeddedServer<*, *> {
+    fun create(context: Context, bindHost: String, port: Int, secureCookies: Boolean): EmbeddedServer<*, *> {
         System.setProperty("io.ktor.development", "false")
         val app = context.applicationContext
         val httpsPort = port
         return embeddedServer(CIO, applicationEnvironment { }, {
-            if (tls != null) {
-                // HTTPS. Ktor may clear the arrays it is given, so hand out fresh copies each time.
-                sslConnector(
-                    keyStore = tls.keyStore,
-                    keyAlias = TlsIdentity.ALIAS,
-                    keyStorePassword = { tls.password.copyOf() },
-                    privateKeyPassword = { tls.password.copyOf() }
-                ) {
-                    host = "0.0.0.0"
-                    this.port = httpsPort
-                }
-            } else {
-                // Testing mode: plain HTTP (no encryption).
-                connector {
-                    host = "0.0.0.0"
-                    this.port = httpsPort
-                }
+            // Plain HTTP engine. In HTTPS mode it listens on loopback only and TlsFrontend sits in front of it.
+            connector {
+                host = bindHost
+                this.port = httpsPort
             }
         }) {
             routing {
@@ -82,7 +69,7 @@ object DropLinkServer {
                             } else {
                                 call.response.cookies.append(
                                     Cookie(
-                                        COOKIE, token, path = "/", secure = tls != null, httpOnly = true,
+                                        COOKIE, token, path = "/", secure = secureCookies, httpOnly = true,
                                         maxAge = 31_536_000, extensions = mapOf("SameSite" to "Strict")
                                     )
                                 )

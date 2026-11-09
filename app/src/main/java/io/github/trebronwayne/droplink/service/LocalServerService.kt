@@ -19,6 +19,7 @@ import io.github.trebronwayne.droplink.core.Pairing
 import io.github.trebronwayne.droplink.core.ServerStats
 import io.github.trebronwayne.droplink.core.TlsIdentity
 import io.github.trebronwayne.droplink.server.DropLinkServer
+import io.github.trebronwayne.droplink.server.TlsFrontend
 import io.ktor.server.engine.EmbeddedServer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class LocalServerService : Service() {
     private val starting = AtomicBoolean(false)
     @Volatile private var server: EmbeddedServer<*, *>? = null
+    @Volatile private var frontend: TlsFrontend? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -78,10 +80,22 @@ class LocalServerService : Service() {
                     tls = TlsIdentity.load(applicationContext)
                 }
                 stage = "creating the server"
-                val engine = DropLinkServer.create(applicationContext, PORT, tls)
+                val backendPort = if (useHttp) PORT else freePort()
+                val engine = DropLinkServer.create(
+                    applicationContext,
+                    bindHost = if (useHttp) "0.0.0.0" else "127.0.0.1",
+                    port = backendPort,
+                    secureCookies = !useHttp
+                )
                 stage = "starting the server"
                 engine.start(wait = false)
                 server = engine
+                if (tls != null) {
+                    stage = "starting the secure (HTTPS) front end"
+                    val front = TlsFrontend(tls, PORT, backendPort)
+                    front.start()
+                    frontend = front
+                }
                 Pairing.onRequest = { request -> notifyPairing(request) }
                 _hostingState.value = true
                 ServerStats.start()
@@ -110,6 +124,8 @@ class LocalServerService : Service() {
         Pairing.clearRequests()
         try { Discovery.stopAdvertising() } catch (_: Throwable) { }
         getSystemService(NotificationManager::class.java).cancel(PAIRING_NOTIFICATION_ID)
+        try { frontend?.stop() } catch (_: Throwable) { }
+        frontend = null
         val engine = server
         server = null
         starting.set(false)
@@ -117,6 +133,8 @@ class LocalServerService : Service() {
             Thread { try { engine.stop(300, 1000) } catch (_: Throwable) { } }.apply { name = "DropLink-ServerStop" }.start()
         }
     }
+
+    private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

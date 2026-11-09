@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+- Fix: starting the server crashed with "CIO Engine does not currently support HTTPS". HTTPS is now terminated by a built-in TLS front end using Android's own TLS stack; the DropLink server behind it listens on this phone's loopback address only.
+- Testing mode (HTTP) still serves plain HTTP directly on the public port.
+
 ## 0.6.0
 - Performance focus for the main server: file streaming uses 256 KB buffers, folder paths are cached briefly to avoid slow file-provider lookups, and shared-folder lookup no longer re-checks every folder per request.
 - Speed test: `/api/speedtest/down` and `/api/speedtest/up`, with a Speed test page in the web client (1 to 8 simultaneous streams) that measures the network path without touching storage.

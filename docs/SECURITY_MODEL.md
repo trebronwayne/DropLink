@@ -47,3 +47,6 @@ Provide immediate disconnect, revoke-node and revoke-service controls. Record se
 - Pairing: request, matching confirmation code on both screens, explicit approval on the phone, then a session token. Only a SHA-256 hash of the token is stored on the phone. Revocation takes effect immediately.
 - Limits: 3 pending requests, 5 requests per minute, 2 minute expiry.
 - Known limitations: the TLS private key is in app-private storage protected by the Android sandbox, not by hardware. The confirmation code stops approving the wrong request but does not by itself stop an active man-in-the-middle, which is why the fingerprint comparison matters. Audit logs and per-service permissions are still to do.
+
+## Transport architecture (v0.6.1)
+Ktor's CIO engine has no TLS support, so `TlsFrontend` terminates HTTPS on the public port with Android's TLS stack (TLS 1.2/1.3, the node's self-signed certificate) and relays to the DropLink server on 127.0.0.1 at a random port. Apps on the same phone can reach that loopback port, but every data route still needs a paired session, and pairing requests are rate limited and need on-screen approval.
