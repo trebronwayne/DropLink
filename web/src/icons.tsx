@@ -1,0 +1,119 @@
+import type { SVGProps } from 'react'
+
+export type Kind = 'folder' | 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'archive' | 'file'
+type IconProps = SVGProps<SVGSVGElement>
+
+const line = (p: IconProps): IconProps => ({
+  width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+  strokeWidth: 1.75, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true, ...p
+})
+
+export const SearchIcon = (p: IconProps) => <svg {...line(p)}><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></svg>
+export const GridIcon = (p: IconProps) => (
+  <svg {...line(p)}><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" />
+    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" /></svg>
+)
+export const ListIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+export const SortIcon = (p: IconProps) => <svg {...line(p)}><path d="M8 5v14m0 0-3-3m3 3 3-3M16 19V5m0 0-3 3m3-3 3 3" /></svg>
+export const DownloadIcon = (p: IconProps) => <svg {...line(p)}><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14" /></svg>
+export const CloseIcon = (p: IconProps) => <svg {...line(p)}><path d="M6 6l12 12M18 6 6 18" /></svg>
+export const ChevronRightIcon = (p: IconProps) => <svg {...line({ width: 16, height: 16, ...p })}><path d="m9 6 6 6-6 6" /></svg>
+export const ArrowLeftIcon = (p: IconProps) => <svg {...line(p)}><path d="M19 12H5m0 0 6-6m-6 6 6 6" /></svg>
+export const ArrowRightIcon = (p: IconProps) => <svg {...line(p)}><path d="M5 12h14m0 0-6-6m6 6-6 6" /></svg>
+export const RefreshIcon = (p: IconProps) => <svg {...line(p)}><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" /></svg>
+export const GaugeIcon = (p: IconProps) => <svg {...line(p)}><path d="M4.5 17a8 8 0 1 1 15 0" /><path d="m12 14 4-4" /></svg>
+export const ShieldIcon = (p: IconProps) => <svg {...line(p)}><path d="M12 3.5 5 6v5.5c0 4.2 2.8 7.6 7 9 4.2-1.4 7-4.8 7-9V6l-7-2.5Z" /><path d="m9 12 2.2 2.2L15.5 10" /></svg>
+
+/** DropLink logo, redrawn as vectors. The gap and the link ring are real cut-outs, so it works on any background. */
+export function Logo({ size = 28 }: { size?: number }) {
+  const drop = 'M628 133 L336 494 A375 375 0 1 0 920 494 Z'
+  return (
+    <svg width={size * 0.77} height={size} viewBox="240 120 770 1000" role="img" aria-label="DropLink">
+      <defs>
+        <linearGradient id="dlL" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#0AE6CC" /><stop offset="1" stopColor="#00A9D0" /></linearGradient>
+        <linearGradient id="dlR" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#00D4FF" /><stop offset="1" stopColor="#0A84FF" /></linearGradient>
+        <linearGradient id="dlC" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#3DCBE3" /><stop offset="1" stopColor="#0FA3D0" /></linearGradient>
+        <clipPath id="dlLeft"><polygon points="959.5,117.5 310.5,1330.5 -400,1330.5 -400,117.5" /></clipPath>
+        <mask id="dlCut" maskUnits="userSpaceOnUse" x="0" y="0" width="1254" height="1400">
+          <rect width="1254" height="1400" fill="#fff" />
+          <line x1="959.5" y1="117.5" x2="310.5" y2="1330.5" stroke="#000" strokeWidth="26" />
+          <rect x="-200" y="-105" width="400" height="210" rx="105" transform="translate(628 750) rotate(-45)" fill="#000" />
+        </mask>
+      </defs>
+      <g mask="url(#dlCut)">
+        <path d={drop} fill="url(#dlR)" />
+        <path d={drop} fill="url(#dlL)" clipPath="url(#dlLeft)" />
+      </g>
+      <rect x="-160" y="-65" width="320" height="130" rx="65" transform="translate(628 750) rotate(-45)" fill="url(#dlC)" />
+    </svg>
+  )
+}
+
+const DOC = 'M9 3h9.5L25 9.5V27a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z'
+const FOLD = 'M18.5 3v5a1.5 1.5 0 0 0 1.5 1.5h5'
+
+/** File type icons: one consistent set, colour-coded by kind. */
+export function FileTypeIcon({ kind, size = 32 }: { kind: Kind; size?: number }) {
+  const svg = { width: size, height: size, viewBox: '0 0 32 32', 'aria-hidden': true as const }
+  switch (kind) {
+    case 'folder':
+      return (
+        <svg {...svg}>
+          <path d="M3 9a3 3 0 0 1 3-3h6.2a2 2 0 0 1 1.5.7L15.5 8H26a3 3 0 0 1 3 3v1H3V9Z" fill="#F2A900" />
+          <path d="M3 12h26v11a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V12Z" fill="#FFC83D" />
+        </svg>
+      )
+    case 'image':
+      return (
+        <svg {...svg}>
+          <rect x="3" y="5" width="26" height="22" rx="5" fill="#2F9BFF" />
+          <path d="M5 25l7-9 4.5 5.5 3-3.5L27 25Z" fill="#fff" fillOpacity=".95" />
+          <circle cx="22" cy="12" r="2.6" fill="#fff" />
+        </svg>
+      )
+    case 'video':
+      return (
+        <svg {...svg}>
+          <rect x="3" y="5" width="26" height="22" rx="5" fill="#8B5CF6" />
+          <path d="M13 11v10l8.5-5Z" fill="#fff" />
+        </svg>
+      )
+    case 'audio':
+      return (
+        <svg {...svg}>
+          <rect x="3" y="5" width="26" height="22" rx="5" fill="#EC4899" />
+          <path d="M13 21V10.5l9-2V19" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="11" cy="21" r="2.6" fill="#fff" />
+          <circle cx="20" cy="19" r="2.6" fill="#fff" />
+        </svg>
+      )
+    case 'pdf':
+      return (
+        <svg {...svg}>
+          <path d={DOC} fill="#E5484D" /><path d={FOLD} fill="#fff" fillOpacity=".4" />
+          <text x="16" y="23" fontSize="7.2" fontWeight="700" fill="#fff" textAnchor="middle" fontFamily="system-ui, sans-serif">PDF</text>
+        </svg>
+      )
+    case 'text':
+      return (
+        <svg {...svg}>
+          <path d={DOC} fill="#64748B" /><path d={FOLD} fill="#fff" fillOpacity=".4" />
+          <path d="M11 15h10M11 19h10M11 23h6" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      )
+    case 'archive':
+      return (
+        <svg {...svg}>
+          <path d={DOC} fill="#F28C28" /><path d={FOLD} fill="#fff" fillOpacity=".4" />
+          <path d="M14 11h2m-2 3h2m-2 3h2" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
+          <rect x="13" y="19.5" width="4" height="5" rx="1.2" fill="#fff" />
+        </svg>
+      )
+    default:
+      return (
+        <svg {...svg}>
+          <path d={DOC} fill="#8A94A6" /><path d={FOLD} fill="#fff" fillOpacity=".4" />
+        </svg>
+      )
+  }
+}

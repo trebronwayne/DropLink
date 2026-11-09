@@ -23,6 +23,7 @@ import androidx.lifecycle.lifecycleScope
 import io.github.trebronwayne.droplink.core.CrashLog
 import io.github.trebronwayne.droplink.core.DiscoveredNode
 import io.github.trebronwayne.droplink.core.Discovery
+import io.github.trebronwayne.droplink.core.EventLog
 import io.github.trebronwayne.droplink.core.HostingOptions
 import io.github.trebronwayne.droplink.core.NetworkAddresses
 import io.github.trebronwayne.droplink.core.NodeIdentity
@@ -51,6 +52,7 @@ class MainActivity : ComponentActivity() {
     private var folders by mutableStateOf(emptyList<SharedFolder>())
     private var useHttp by mutableStateOf(false)
     private var diagnostics by mutableStateOf("")
+    private var events by mutableStateOf("")
     private var testResults by mutableStateOf(emptyList<String>())
     private var batteryRestricted by mutableStateOf(false)
 
@@ -73,6 +75,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         CrashLog.install(this)
+        EventLog.init(this)
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         Pairing.init(this)
@@ -99,6 +102,7 @@ class MainActivity : ComponentActivity() {
                     error = error,
                     useHttp = useHttp,
                     diagnostics = diagnostics,
+                    events = events,
                     stats = stats,
                     testResults = testResults,
                     batteryRestricted = batteryRestricted,
@@ -112,6 +116,11 @@ class MainActivity : ComponentActivity() {
                     onClearDiagnostics = {
                         CrashLog.clear(this@MainActivity)
                         diagnostics = ""
+                    },
+                    onRefreshEvents = { events = EventLog.read(this@MainActivity) },
+                    onClearEvents = {
+                        EventLog.clear(this@MainActivity)
+                        events = ""
                     },
                     onTest = ::runSelfTest,
                     onOpenLocal = ::openOnThisPhone,
@@ -159,10 +168,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (LocalServerService.hostingState.value) EventLog.add("App came to the foreground")
         try { Discovery.startBrowsing(applicationContext) } catch (e: Throwable) { CrashLog.record("Discovery could not start", e) }
     }
 
     override fun onStop() {
+        if (LocalServerService.hostingState.value) EventLog.add("App went to the background")
         try { Discovery.stopBrowsing() } catch (_: Throwable) { }
         super.onStop()
     }
@@ -172,6 +183,7 @@ class MainActivity : ComponentActivity() {
         refreshAddresses()
         folders = SharedFolders.list(this)
         diagnostics = CrashLog.read(this)
+        events = EventLog.read(this)
         batteryRestricted = !getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
     }
 

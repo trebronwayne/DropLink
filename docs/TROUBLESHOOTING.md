@@ -11,3 +11,10 @@ Android can pause background apps to save battery. DropLink runs as a foreground
 - Turn off Battery Saver and Data Saver while hosting.
 - On Tecno, Infinix, Xiaomi, Oppo, Vivo and similar phones, also allow "Auto-start" and lock the app in the recent apps list.
 - If Android stops the service anyway, the Problem report on Home says "Hosting service was stopped by Android".
+
+## Reading the Hosting activity log (Settings)
+Copy it after hosting stops and send it. What the lines mean:
+- "App went to the background" then "Screen turned off": the normal sequence when you leave the app.
+- "DropLink was frozen or throttled by Android for about N s": the phone paused the whole app. This points to a battery or app-freezing feature added by the phone maker, not to DropLink's server.
+- "Server did not answer its own check" then "Restarting the server": the server stopped responding and was restarted automatically.
+- "Android stopped the hosting service (not you)" or "Android restarted the hosting service": the system killed the service.

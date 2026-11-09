@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0
+- Official DropLink logo, redrawn as clean vectors (`branding/droplink-logo.svg`): launcher icon (adaptive, with a themed monochrome layer), notification icon, logo in the app and in the web client, browser tab icon.
+- Web file browser rebuilt in Fluent style with React: navigation pane with shared folders, breadcrumb, command bar (filter, sort by name, date or size, ascending or descending, list or grid view), file-type SVG icon set, image thumbnails in grid view, a viewer with previous and next, keyboard shortcuts, skeleton loading, empty states, dark mode and a phone layout.
+- Background hardening: a watchdog checks the server every 15 seconds, notices when Android freezes or throttles the app, and restarts the server if it stops answering. A new "Hosting activity" log in Settings records screen on and off, app foreground and background, memory warnings, and when Android restarts or stops the service.
+
 ## 0.7.0
 - Reliability: while hosting, the service holds a partial wake lock and a Wi-Fi lock, and Settings has a "Keep hosting reliable" card with battery-optimization status and a shortcut to the battery settings. If Android stops the hosting service unexpectedly, the problem report now says so.
 - Test connection button on the device card: checks that the server answers on this phone and on each network address, and lists the phone's network interfaces. Shows whether a problem is the server or the network.

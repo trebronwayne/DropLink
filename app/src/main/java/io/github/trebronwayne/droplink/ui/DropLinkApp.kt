@@ -1,5 +1,6 @@
 package io.github.trebronwayne.droplink.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.OpenInBrowser
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
@@ -53,12 +55,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import io.github.trebronwayne.droplink.BuildConfig
+import io.github.trebronwayne.droplink.R
 import io.github.trebronwayne.droplink.core.DiscoveredNode
 import io.github.trebronwayne.droplink.core.PairRequest
 import io.github.trebronwayne.droplink.core.SharedFolder
@@ -95,6 +99,7 @@ data class HostUi(
     val error: String?,
     val useHttp: Boolean,
     val diagnostics: String,
+    val events: String,
     val stats: StatsSnapshot,
     val testResults: List<String>,
     val batteryRestricted: Boolean,
@@ -103,6 +108,8 @@ data class HostUi(
     val onRefresh: () -> Unit,
     val onUseHttpChange: (Boolean) -> Unit,
     val onClearDiagnostics: () -> Unit,
+    val onRefreshEvents: () -> Unit,
+    val onClearEvents: () -> Unit,
     val onTest: () -> Unit,
     val onOpenLocal: () -> Unit,
     val onOpenBatterySettings: () -> Unit
@@ -160,7 +167,7 @@ private fun ScreenHost(
     onNavigate: (Destination) -> Unit
 ) {
     when (destination) {
-        Destination.Home -> ScreenScaffold("Home", "Your phone. Your server. Your network.", wide) {
+        Destination.Home -> ScreenScaffold("Home", "Your phone. Your server. Your network.", wide, showLogo = true) {
             if (host.diagnostics.isNotBlank()) DiagnosticsCard(host.diagnostics, host.onClearDiagnostics)
             pairing.requests.forEach { PairingRequestCard(it, pairing.onApprove, pairing.onDeny) }
             DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh, host.error, host.stats, host.testResults, host.onTest, host.onOpenLocal)
@@ -183,6 +190,11 @@ private fun ScreenHost(
             SettingsContent(nodeId, host, pairing)
         }
     }
+}
+
+@Composable
+private fun DropLogo(modifier: Modifier = Modifier) {
+    Image(painter = painterResource(R.drawable.droplink_logo), contentDescription = "DropLink logo", modifier = modifier)
 }
 
 @Composable
@@ -292,6 +304,26 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
         )
     }
     DropCard {
+        val clipboardForEvents = LocalClipboardManager.current
+        DropText("Hosting activity", style = type.subtitle)
+        DropText(
+            "Shows when the app went to the background, the screen turned off, or Android paused or stopped the server. Copy it and send it if hosting stops unexpectedly.",
+            style = type.caption, color = secondary
+        )
+        DropText(
+            if (host.events.isBlank()) "Nothing recorded yet." else host.events.lines().filter { it.isNotBlank() }.takeLast(14).joinToString("\n"),
+            style = type.caption, fontFamily = FontFamily.Monospace
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+            DropButton(
+                "Copy log", { clipboardForEvents.setText(AnnotatedString(host.events)) },
+                Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.ContentCopy, enabled = host.events.isNotBlank()
+            )
+            DropButton("Refresh", host.onRefreshEvents, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Refresh)
+            DropButton("Clear", host.onClearEvents, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Delete)
+        }
+    }
+    DropCard {
         DropText("Keep hosting reliable", style = type.subtitle)
         DropText(
             if (host.batteryRestricted) {
@@ -350,6 +382,7 @@ private fun ScreenScaffold(
     title: String,
     subtitle: String,
     wide: Boolean,
+    showLogo: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val edge = if (wide) DropSpacing.xxl else DropSpacing.l
@@ -358,9 +391,15 @@ private fun ScreenScaffold(
             modifier = Modifier.widthIn(max = 880.dp).fillMaxWidth().padding(horizontal = edge, vertical = DropSpacing.xl),
             verticalArrangement = Arrangement.spacedBy(DropSpacing.l)
         ) {
-            Column {
-                DropText(title, style = DropTheme.type.largeTitle)
-                DropText(subtitle, style = DropTheme.type.body, color = DropTheme.colors.textSecondary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (showLogo) {
+                    DropLogo(Modifier.size(48.dp))
+                    Spacer(Modifier.width(DropSpacing.m))
+                }
+                Column {
+                    DropText(title, style = DropTheme.type.largeTitle)
+                    DropText(subtitle, style = DropTheme.type.body, color = DropTheme.colors.textSecondary)
+                }
             }
             content()
         }
@@ -376,7 +415,7 @@ private fun NavigationPane(current: Destination, onSelect: (Destination) -> Unit
         verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)
     ) {
         Row(Modifier.padding(DropSpacing.s), verticalAlignment = Alignment.CenterVertically) {
-            DropIconTile(Icons.Filled.Hub)
+            DropLogo(Modifier.size(32.dp))
             DropText("DropLink", style = DropTheme.type.subtitle, modifier = Modifier.padding(start = DropSpacing.m))
         }
         Spacer(Modifier.height(DropSpacing.s))

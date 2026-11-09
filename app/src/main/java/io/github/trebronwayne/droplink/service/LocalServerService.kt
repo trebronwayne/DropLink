@@ -7,13 +7,20 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.Build
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.net.wifi.WifiManager
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import io.github.trebronwayne.droplink.MainActivity
+import io.github.trebronwayne.droplink.R
 import io.github.trebronwayne.droplink.core.CrashLog
 import io.github.trebronwayne.droplink.core.Discovery
+import io.github.trebronwayne.droplink.core.EventLog
 import io.github.trebronwayne.droplink.core.HostingOptions
 import io.github.trebronwayne.droplink.core.NodeIdentity
 import io.github.trebronwayne.droplink.core.PairRequest
@@ -28,6 +35,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.net.InetSocketAddress
 import java.net.ServerSocket
+import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** User-started foreground service that hosts the DropLink server (web client and file API). */
@@ -37,15 +45,21 @@ class LocalServerService : Service() {
     @Volatile private var frontend: TlsFrontend? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var screenReceiver: BroadcastReceiver? = null
+    @Volatile private var watchdog: Thread? = null
 
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
+        EventLog.init(this)
+        EventLog.add("Hosting service created")
         createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null) EventLog.add("Android restarted the hosting service after it had been stopped")
         if (intent?.action == ACTION_STOP) {
+            EventLog.add("Stop requested by you")
             stopHosting()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -104,6 +118,9 @@ class LocalServerService : Service() {
                 _hostingState.value = true
                 ServerStats.start()
                 acquireLocks()
+                registerScreenReceiver()
+                startWatchdog()
+                EventLog.add("Hosting started on port $PORT (${if (useHttp) "HTTP testing mode" else "HTTPS"})")
                 try {
                     Discovery.advertise(
                         applicationContext, NodeIdentity.getOrCreateNodeId(applicationContext),
@@ -123,7 +140,12 @@ class LocalServerService : Service() {
     }
 
     private fun stopHosting() {
+        val wasHosting = _hostingState.value
         _hostingState.value = false
+        watchdog?.interrupt()
+        watchdog = null
+        unregisterScreenReceiver()
+        if (wasHosting) EventLog.add("Hosting stopped")
         ServerStats.stop()
         releaseLocks()
         Pairing.onRequest = null
@@ -170,6 +192,91 @@ class LocalServerService : Service() {
         wifiLock = null
     }
 
+    private fun registerScreenReceiver() {
+        if (screenReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> EventLog.add("Screen turned off")
+                    Intent.ACTION_SCREEN_ON -> EventLog.add("Screen turned on")
+                }
+            }
+        }
+        screenReceiver = receiver
+        try {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            }
+            ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        } catch (_: Throwable) {
+            screenReceiver = null
+        }
+    }
+
+    private fun unregisterScreenReceiver() {
+        val receiver = screenReceiver ?: return
+        screenReceiver = null
+        try { unregisterReceiver(receiver) } catch (_: Throwable) { }
+    }
+
+    /**
+     * Watches the server from the inside: it notices when Android freezes the app (the beat arrives much later than
+     * planned), and if the server stops answering on its own port it restarts it.
+     */
+    private fun startWatchdog() {
+        watchdog?.interrupt()
+        val thread = Thread {
+            var lastBeat = SystemClock.elapsedRealtime()
+            var failures = 0
+            try {
+                while (_hostingState.value) {
+                    Thread.sleep(WATCHDOG_INTERVAL_MS)
+                    if (!_hostingState.value) break
+                    val now = SystemClock.elapsedRealtime()
+                    val gap = now - lastBeat
+                    lastBeat = now
+                    if (gap > WATCHDOG_INTERVAL_MS * 3) {
+                        EventLog.add("DropLink was frozen or throttled by Android for about ${gap / 1000} s (expected ${WATCHDOG_INTERVAL_MS / 1000} s)")
+                    }
+                    if (loopbackAnswers()) {
+                        failures = 0
+                    } else {
+                        failures += 1
+                        EventLog.add("Server did not answer its own check ($failures)")
+                        if (failures >= 2) {
+                            EventLog.add("Restarting the server")
+                            restartServer()
+                            return@Thread
+                        }
+                    }
+                }
+            } catch (_: InterruptedException) {
+                // Hosting stopped.
+            }
+        }
+        thread.name = "DropLink-Watchdog"
+        thread.isDaemon = true
+        watchdog = thread
+        thread.start()
+    }
+
+    private fun loopbackAnswers(): Boolean {
+        return try {
+            Socket().use { it.connect(InetSocketAddress("127.0.0.1", PORT), 2_000) }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun restartServer() {
+        stopHosting()
+        Thread.interrupted() // stopHosting interrupts this thread; clear that so the pause below works
+        try { Thread.sleep(1_500) } catch (_: InterruptedException) { }
+        startHosting()
+    }
+
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
     private fun createNotificationChannel() {
@@ -186,7 +293,7 @@ class LocalServerService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = NotificationCompat.Builder(this, PAIRING_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_stat_droplink)
             .setContentTitle("Pairing request")
             .setContentText("${request.deviceName} wants to connect. Code ${request.code}. Open DropLink to approve.")
             .setContentIntent(openApp)
@@ -208,7 +315,8 @@ class LocalServerService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+            .setSmallIcon(R.drawable.ic_stat_droplink)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setContentTitle("DropLink is hosting")
             .setContentText("Sharing selected folders on port $PORT")
             .setContentIntent(openApp)
@@ -219,10 +327,21 @@ class LocalServerService : Service() {
 
     override fun onDestroy() {
         if (_hostingState.value) {
+            EventLog.add("Android stopped the hosting service (not you)")
             CrashLog.record("Hosting service was stopped by Android, not by you. Check battery and background settings.")
         }
         stopHosting()
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        EventLog.add("App was swiped away from recent apps (hosting continues)")
+        super.onTaskRemoved(rootIntent)
+    }
+
+    override fun onTrimMemory(level: Int) {
+        EventLog.add("Android asked the app to free memory (level $level)")
+        super.onTrimMemory(level)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -235,6 +354,7 @@ class LocalServerService : Service() {
         private const val NOTIFICATION_ID = 47831
         private const val PAIRING_CHANNEL_ID = "droplink_pairing"
         private const val PAIRING_NOTIFICATION_ID = 47832
+        private const val WATCHDOG_INTERVAL_MS = 15_000L
 
         private val _hostingState = MutableStateFlow(false)
         private val _errorState = MutableStateFlow<String?>(null)
