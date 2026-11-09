@@ -41,6 +41,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import io.github.trebronwayne.droplink.core.StatsSnapshot
 import io.github.trebronwayne.droplink.ui.theme.DropRadius
 import io.github.trebronwayne.droplink.ui.theme.DropSpacing
 import io.github.trebronwayne.droplink.ui.theme.DropTheme
@@ -195,7 +196,9 @@ fun DropDeviceCard(
     addresses: List<String>,
     onStartHosting: () -> Unit,
     onStopHosting: () -> Unit,
-    onRefreshAddresses: () -> Unit
+    onRefreshAddresses: () -> Unit,
+    error: String? = null,
+    stats: StatsSnapshot? = null
 ) {
     val type = DropTheme.type
     val secondary = DropTheme.colors.textSecondary
@@ -230,6 +233,12 @@ fun DropDeviceCard(
                     style = type.caption, color = secondary
                 )
             }
+            if (stats != null) {
+                DropText(
+                    "Active transfers: ${stats.activeTransfers}  •  ${"%.1f".format(stats.bytesPerSecond / 1_048_576.0)} MB/s  •  Served ${formatBytes(stats.totalBytes)}",
+                    style = type.caption, color = secondary
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
                 DropButton(
                     "Copy address", { addresses.firstOrNull()?.let { clipboard.setText(AnnotatedString(it)) } },
@@ -240,7 +249,11 @@ fun DropDeviceCard(
             DropButton("Stop hosting", onStopHosting, Modifier.fillMaxWidth(), DropButtonStyle.Secondary, Icons.Filled.Stop)
         } else {
             DropText("Make this phone available as a local DropLink node. Only the folders you share are reachable.", style = type.body)
+            if (error != null) DropText(error, style = type.caption, color = DropTheme.colors.danger)
             DropButton("Start hosting", onStartHosting, Modifier.fillMaxWidth(), DropButtonStyle.Primary, Icons.Filled.PlayArrow)
         }
     }
 }
+
+private fun formatBytes(bytes: Long): String =
+    if (bytes >= 1_073_741_824L) "%.2f GB".format(bytes / 1_073_741_824.0) else "%.0f MB".format(bytes / 1_048_576.0)

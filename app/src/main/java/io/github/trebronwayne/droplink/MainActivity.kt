@@ -18,12 +18,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import io.github.trebronwayne.droplink.core.Discovery
+import io.github.trebronwayne.droplink.core.CrashLog
 import io.github.trebronwayne.droplink.core.DiscoveredNode
+import io.github.trebronwayne.droplink.core.Discovery
+import io.github.trebronwayne.droplink.core.HostingOptions
 import io.github.trebronwayne.droplink.core.NetworkAddresses
 import io.github.trebronwayne.droplink.core.NodeIdentity
 import io.github.trebronwayne.droplink.core.PairStatus
 import io.github.trebronwayne.droplink.core.Pairing
+import io.github.trebronwayne.droplink.core.ServerStats
 import io.github.trebronwayne.droplink.core.SharedFolder
 import io.github.trebronwayne.droplink.core.SharedFolders
 import io.github.trebronwayne.droplink.core.TlsIdentity
@@ -43,6 +46,8 @@ class MainActivity : ComponentActivity() {
     private var fingerprint by mutableStateOf("Generating certificate…")
     private var addresses by mutableStateOf(emptyList<String>())
     private var folders by mutableStateOf(emptyList<SharedFolder>())
+    private var useHttp by mutableStateOf(false)
+    private var diagnostics by mutableStateOf("")
 
     // Hosting works even if the user declines; only the visible notifications are lost.
     private val notificationPermission =
@@ -51,25 +56,57 @@ class MainActivity : ComponentActivity() {
     private val pickFolder =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri != null) {
-                SharedFolders.add(this, uri)
+                try {
+                    SharedFolders.add(this, uri)
+                } catch (e: Throwable) {
+                    CrashLog.record("Could not share that folder", e)
+                }
                 folders = SharedFolders.list(this)
+                diagnostics = CrashLog.read(this)
             }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        CrashLog.install(this)
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         Pairing.init(this)
         folders = SharedFolders.list(this)
+        useHttp = HostingOptions.useHttp(this)
+        diagnostics = CrashLog.read(this)
         setContent {
             DropLinkTheme {
                 val hosting by LocalServerService.hostingState.collectAsStateWithLifecycle()
+                val error by LocalServerService.errorState.collectAsStateWithLifecycle()
+                val stats by ServerStats.state.collectAsStateWithLifecycle()
                 val requests by Pairing.requests.collectAsStateWithLifecycle()
                 val trusted by Pairing.trusted.collectAsStateWithLifecycle()
                 val nodes by Discovery.nodes.collectAsStateWithLifecycle()
-                LaunchedEffect(hosting) { refreshAddresses() }
+                LaunchedEffect(hosting, useHttp) { refreshAddresses() }
+                LaunchedEffect(error, hosting) {
+                    diagnostics = withContext(Dispatchers.IO) { CrashLog.read(applicationContext) }
+                }
 
-                val host = HostUi(hosting, addresses, fingerprint, ::requestStartHosting, ::stopHostingService, ::refreshAddresses)
+                val host = HostUi(
+                    isHosting = hosting,
+                    addresses = addresses,
+                    fingerprint = fingerprint,
+                    error = error,
+                    useHttp = useHttp,
+                    diagnostics = diagnostics,
+                    stats = stats,
+                    onStart = ::requestStartHosting,
+                    onStop = ::stopHostingService,
+                    onRefresh = ::refreshAddresses,
+                    onUseHttpChange = { value ->
+                        HostingOptions.setUseHttp(this@MainActivity, value)
+                        useHttp = value
+                    },
+                    onClearDiagnostics = {
+                        CrashLog.clear(this@MainActivity)
+                        diagnostics = ""
+                    }
+                )
                 val files = remember(folders) {
                     FilesUi(
                         folders = folders,
@@ -92,20 +129,31 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
-            nodeId = withContext(Dispatchers.IO) { NodeIdentity.getOrCreateNodeId(applicationContext) }
+            nodeId = try {
+                withContext(Dispatchers.IO) { NodeIdentity.getOrCreateNodeId(applicationContext) }
+            } catch (e: Throwable) {
+                CrashLog.record("Device identity could not be created", e)
+                "Unavailable: ${e.javaClass.simpleName}"
+            }
         }
         lifecycleScope.launch {
-            fingerprint = withContext(Dispatchers.IO) { TlsIdentity.load(applicationContext).fingerprint }
+            fingerprint = try {
+                withContext(Dispatchers.IO) { TlsIdentity.load(applicationContext).fingerprint }
+            } catch (e: Throwable) {
+                CrashLog.record("Security certificate could not be created", e)
+                "Unavailable: ${e.javaClass.simpleName}: ${e.message ?: "no details"}"
+            }
+            diagnostics = CrashLog.read(applicationContext)
         }
     }
 
     override fun onStart() {
         super.onStart()
-        Discovery.startBrowsing(applicationContext)
+        try { Discovery.startBrowsing(applicationContext) } catch (e: Throwable) { CrashLog.record("Discovery could not start", e) }
     }
 
     override fun onStop() {
-        Discovery.stopBrowsing()
+        try { Discovery.stopBrowsing() } catch (_: Throwable) { }
         super.onStop()
     }
 
@@ -113,11 +161,14 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         refreshAddresses()
         folders = SharedFolders.list(this)
+        diagnostics = CrashLog.read(this)
     }
 
     private fun refreshAddresses() {
         lifecycleScope.launch {
-            addresses = withContext(Dispatchers.IO) { NetworkAddresses.baseUrls(LocalServerService.PORT) }
+            addresses = withContext(Dispatchers.IO) {
+                NetworkAddresses.baseUrls(LocalServerService.PORT, https = !useHttp)
+            }
         }
     }
 
@@ -134,7 +185,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startHostingService() {
-        startForegroundService(Intent(this, LocalServerService::class.java).setAction(LocalServerService.ACTION_START))
+        try {
+            startForegroundService(Intent(this, LocalServerService::class.java).setAction(LocalServerService.ACTION_START))
+        } catch (e: Throwable) {
+            CrashLog.record("Could not start the hosting service", e)
+            diagnostics = CrashLog.read(this)
+        }
     }
 
     private fun stopHostingService() {

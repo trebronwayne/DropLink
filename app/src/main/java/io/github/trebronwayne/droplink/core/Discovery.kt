@@ -139,6 +139,14 @@ object Discovery {
     }
 
     private fun handleResolved(info: NsdServiceInfo) {
+        try {
+            handleResolvedUnsafe(info)
+        } catch (e: Throwable) {
+            CrashLog.record("Could not read a discovered node", e)
+        }
+    }
+
+    private fun handleResolvedUnsafe(info: NsdServiceInfo) {
         val host = info.host as? Inet4Address ?: return
         fun attr(key: String) = info.attributes[key]?.toString(Charsets.UTF_8).orEmpty()
         val nodeId = attr("id")

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 data class SharedFolder(val id: String, val name: String, val uri: Uri)
 
@@ -44,20 +45,62 @@ object SharedFolders {
             context.contentResolver.releasePersistableUriPermission(folder.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (_: Exception) { }
         save(context, stored(context) - folder.uri.toString())
+        fileCache.clear()
     }
 
-    fun root(context: Context, id: String): DocumentFile? =
-        list(context).firstOrNull { it.id == id }?.let { DocumentFile.fromTreeUri(context, it.uri) }
+    private class CachedFile(val file: DocumentFile, val storedAt: Long)
+
+    // Looking up a path in the Storage Access Framework costs a system query per folder level, which is slow
+    // when many clients are active. Recently seen paths are cached briefly so repeat requests skip those queries.
+    private val fileCache = ConcurrentHashMap<String, CachedFile>()
+    private const val CACHE_TTL_MS = 30_000L
+    private const val CACHE_MAX_ENTRIES = 5_000
+
+    private fun segmentsOf(path: String): List<String> = path.split('/').filter { it.isNotEmpty() }
+
+    private fun cacheKey(shareId: String, segments: List<String>): String = shareId + "|" + segments.joinToString("/")
+
+    /** Remembers a child found while listing a folder, so a later download of it needs no lookup. */
+    fun remember(shareId: String, parentPath: String, file: DocumentFile) {
+        val name = file.name ?: return
+        if (fileCache.size > CACHE_MAX_ENTRIES) fileCache.clear()
+        fileCache[cacheKey(shareId, segmentsOf(parentPath) + name)] = CachedFile(file, System.currentTimeMillis())
+    }
+
+    fun root(context: Context, id: String): DocumentFile? {
+        for (text in stored(context)) {
+            val uri = Uri.parse(text)
+            if (idFor(uri) == id) return DocumentFile.fromTreeUri(context, uri)
+        }
+        return null
+    }
 
     /**
      * Resolves a relative path by looking up each segment by name among the real children.
      * Because lookup is name-based, "..", absolute paths and other traversal tricks cannot escape the shared folder.
      */
     fun resolve(context: Context, shareId: String, path: String): DocumentFile? {
-        var current = root(context, shareId) ?: return null
-        for (segment in path.split('/').filter { it.isNotEmpty() }) {
+        val segments = segmentsOf(path)
+        for (segment in segments) {
             if (segment == "." || segment == ".." || segment.contains('\\')) return null
-            current = current.findFile(segment) ?: return null
+        }
+        val now = System.currentTimeMillis()
+        var found: DocumentFile? = null
+        var matched = 0
+        var depth = segments.size
+        while (depth > 0) {
+            val hit = fileCache[cacheKey(shareId, segments.subList(0, depth))]
+            if (hit != null && now - hit.storedAt < CACHE_TTL_MS) {
+                found = hit.file
+                matched = depth
+                break
+            }
+            depth--
+        }
+        var current: DocumentFile = found ?: (root(context, shareId) ?: return null)
+        for (i in matched until segments.size) {
+            current = current.findFile(segments[i]) ?: return null
+            fileCache[cacheKey(shareId, segments.subList(0, i + 1))] = CachedFile(current, now)
         }
         return current
     }

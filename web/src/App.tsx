@@ -127,6 +127,84 @@ function Preview({ share, path, entry, onClose }: { share: string; path: string;
   )
 }
 
+async function downloadBytes(megabytes: number): Promise<number> {
+  const response = await fetch(`/api/speedtest/down?mb=${megabytes}`, { cache: 'no-store' })
+  if (!response.ok || !response.body) throw new Error('download failed')
+  const reader = response.body.getReader()
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.length
+  }
+  return total
+}
+
+type SpeedResult = { downMbps?: number; downMBps?: number; upMbps?: number; error?: string }
+
+function SpeedTest() {
+  const [megabytes, setMegabytes] = useState(25)
+  const [streams, setStreams] = useState(1)
+  const [phase, setPhase] = useState<'idle' | 'down' | 'up'>('idle')
+  const [result, setResult] = useState<SpeedResult>({})
+
+  const run = async () => {
+    setResult({})
+    try {
+      setPhase('down')
+      const t0 = performance.now()
+      const sizes = await Promise.all(Array.from({ length: streams }, () => downloadBytes(megabytes)))
+      const seconds = (performance.now() - t0) / 1000
+      const bytes = sizes.reduce((sum, n) => sum + n, 0)
+      setResult(r => ({ ...r, downMbps: (bytes * 8) / seconds / 1e6, downMBps: bytes / seconds / 1048576 }))
+
+      setPhase('up')
+      const body = new Blob([new Uint8Array(Math.min(megabytes, 25) * 1024 * 1024)])
+      const u0 = performance.now()
+      const upload = await fetch('/api/speedtest/up', { method: 'POST', body })
+      if (!upload.ok) throw new Error('upload failed')
+      const useconds = (performance.now() - u0) / 1000
+      setResult(r => ({ ...r, upMbps: (body.size * 8) / useconds / 1e6 }))
+    } catch {
+      setResult({ error: 'The test failed. Check the connection to the phone and try again.' })
+    } finally {
+      setPhase('idle')
+    }
+  }
+
+  return (
+    <>
+      <h2>Speed test</h2>
+      <div className="card speed">
+        <p className="muted">
+          Measures the network path between this device and the phone, without reading the phone&apos;s storage.
+          Use several streams to see what the phone can deliver to many clients at once.
+        </p>
+        <div className="controls">
+          <label>Data per stream
+            <select value={megabytes} onChange={e => setMegabytes(Number(e.target.value))} disabled={phase !== 'idle'}>
+              {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n} MB</option>)}
+            </select>
+          </label>
+          <label>Simultaneous streams
+            <select value={streams} onChange={e => setStreams(Number(e.target.value))} disabled={phase !== 'idle'}>
+              {[1, 2, 4, 8].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        </div>
+        <button className="primary" onClick={run} disabled={phase !== 'idle'}>
+          {phase === 'down' ? 'Testing download…' : phase === 'up' ? 'Testing upload…' : 'Run speed test'}
+        </button>
+        {result.error && <p className="error" role="alert">{result.error}</p>}
+        {result.downMbps !== undefined && (
+          <p><strong>Download:</strong> {result.downMbps.toFixed(1)} Mbps ({result.downMBps?.toFixed(1)} MB/s) with {streams} stream{streams > 1 ? 's' : ''}</p>
+        )}
+        {result.upMbps !== undefined && <p><strong>Upload:</strong> {result.upMbps.toFixed(1)} Mbps (single stream)</p>}
+      </div>
+    </>
+  )
+}
+
 function Browser({ route }: { route: Route }) {
   const [entries, setEntries] = useState<Entry[] | null>(null)
   const [error, setError] = useState('')
@@ -196,9 +274,10 @@ export default function App() {
             ))}
           </>}
         </nav>
+        <a className="navlink" href="#/speed">Speed test</a>
       </header>
       <main className="content">
-        {!current ? (
+        {route.share === 'speed' ? <SpeedTest /> : !current ? (
           <>
             <h2>Shared folders</h2>
             {shares.length === 0 && <p className="muted">Nothing is shared yet. On the phone, open Files and add a folder.</p>}

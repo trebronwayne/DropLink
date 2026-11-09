@@ -48,4 +48,6 @@ HTTPS on port 47831. Every route except `/health`, `/api/pair/*` and static web 
 | GET | `/api/info` | This node's ID |
 | GET | `/api/shares` | Shared folders `[{id, name}]` |
 | GET | `/api/browse?share=<id>&path=<relative>` | Folder listing `[{name, isDir, size, mime, modified}]` |
+| GET | `/api/speedtest/down?mb=<1-200>` | Streams zero bytes for a download speed test (needs session) |
+| POST | `/api/speedtest/up` | Discards an uploaded body (max 200 MB) and returns `{bytes, millis}` (needs session) |
 | GET | `/api/file?share=<id>&path=<relative>[&download=1]` | File bytes, supports `Range`. HTML, SVG and script types are always sent as downloads |

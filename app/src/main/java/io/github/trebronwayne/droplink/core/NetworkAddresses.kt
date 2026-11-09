@@ -6,7 +6,7 @@ import java.util.Collections
 
 /** Finds this phone's private IPv4 addresses (Wi-Fi, hotspot, USB tethering) as ready-to-open URLs. */
 object NetworkAddresses {
-    fun baseUrls(port: Int): List<String> {
+    fun baseUrls(port: Int, https: Boolean = true): List<String> {
         return try {
             val interfaces = NetworkInterface.getNetworkInterfaces() ?: return emptyList()
             Collections.list(interfaces)
@@ -15,7 +15,7 @@ object NetworkAddresses {
                     Collections.list(ni.inetAddresses)
                         .filterIsInstance<Inet4Address>()
                         .filter { it.isSiteLocalAddress }
-                        .map { "https://${it.hostAddress}:$port/" }
+                        .map { "${if (https) "https" else "http"}://${it.hostAddress}:$port/" }
                 }
                 .distinct()
         } catch (_: Exception) {

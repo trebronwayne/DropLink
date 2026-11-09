@@ -43,6 +43,7 @@ import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +62,7 @@ import io.github.trebronwayne.droplink.BuildConfig
 import io.github.trebronwayne.droplink.core.DiscoveredNode
 import io.github.trebronwayne.droplink.core.PairRequest
 import io.github.trebronwayne.droplink.core.SharedFolder
+import io.github.trebronwayne.droplink.core.StatsSnapshot
 import io.github.trebronwayne.droplink.core.TrustedDevice
 import io.github.trebronwayne.droplink.service.LocalServerService
 import io.github.trebronwayne.droplink.ui.components.DropButton
@@ -90,9 +92,15 @@ data class HostUi(
     val isHosting: Boolean,
     val addresses: List<String>,
     val fingerprint: String,
+    val error: String?,
+    val useHttp: Boolean,
+    val diagnostics: String,
+    val stats: StatsSnapshot,
     val onStart: () -> Unit,
     val onStop: () -> Unit,
-    val onRefresh: () -> Unit
+    val onRefresh: () -> Unit,
+    val onUseHttpChange: (Boolean) -> Unit,
+    val onClearDiagnostics: () -> Unit
 )
 
 data class PairingUi(
@@ -148,8 +156,9 @@ private fun ScreenHost(
 ) {
     when (destination) {
         Destination.Home -> ScreenScaffold("Home", "Your phone. Your server. Your network.", wide) {
+            if (host.diagnostics.isNotBlank()) DiagnosticsCard(host.diagnostics, host.onClearDiagnostics)
             pairing.requests.forEach { PairingRequestCard(it, pairing.onApprove, pairing.onDeny) }
-            DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh)
+            DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh, host.error, host.stats)
             DropSectionTitle("Network workspace")
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
                 DropInfoCard(Icons.Filled.Dns, "Servers", "${network.nodes.size} found nearby", Modifier.weight(1f)) { onNavigate(Destination.Servers) }
@@ -166,7 +175,22 @@ private fun ScreenHost(
             DropEmptyState(Icons.Filled.SwapVert, "No transfers", "Resumable file transfers will appear here.")
         }
         Destination.Settings -> ScreenScaffold("Settings", "Identity, security and about", wide) {
-            SettingsContent(nodeId, host.fingerprint, pairing)
+            SettingsContent(nodeId, host, pairing)
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticsCard(text: String, onClear: () -> Unit) {
+    val type = DropTheme.type
+    val clipboard = LocalClipboardManager.current
+    DropCard {
+        DropText("Problem report", style = type.subtitle)
+        DropText("The app recorded a problem. Copy the report and send it so it can be fixed.", style = type.caption, color = DropTheme.colors.textSecondary)
+        DropText(text.takeLast(1200), style = type.caption, fontFamily = FontFamily.Monospace)
+        Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+            DropButton("Copy report", { clipboard.setText(AnnotatedString(text)) }, Modifier.weight(1f), DropButtonStyle.Primary, Icons.Outlined.ContentCopy)
+            DropButton("Clear", onClear, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Delete)
         }
     }
 }
@@ -245,7 +269,7 @@ private fun FilesContent(files: FilesUi) {
 }
 
 @Composable
-private fun SettingsContent(nodeId: String, fingerprint: String, pairing: PairingUi) {
+private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
     val clipboard = LocalClipboardManager.current
     val type = DropTheme.type
     val secondary = DropTheme.colors.textSecondary
@@ -261,6 +285,17 @@ private fun SettingsContent(nodeId: String, fingerprint: String, pairing: Pairin
             style = DropButtonStyle.Secondary, icon = Icons.Outlined.ContentCopy,
             enabled = nodeId.startsWith("dl-")
         )
+    }
+    DropCard {
+        DropText("Connection mode", style = type.subtitle)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                DropText("Testing mode (HTTP)", style = type.bodyStrong)
+                DropText("Turns encryption off. Use only to find problems on a network you control.", style = type.caption, color = secondary)
+            }
+            Switch(checked = host.useHttp, onCheckedChange = host.onUseHttpChange, enabled = !host.isHosting)
+        }
+        if (host.isHosting) DropText("Stop hosting to change this.", style = type.caption, color = secondary)
     }
     DropCard {
         DropText("Trusted devices", style = type.subtitle)
@@ -279,7 +314,7 @@ private fun SettingsContent(nodeId: String, fingerprint: String, pairing: Pairin
     }
     DropCard {
         DropText("Certificate fingerprint (SHA-256)", style = type.subtitle)
-        DropText(fingerprint, style = type.caption, fontFamily = FontFamily.Monospace)
+        DropText(host.fingerprint, style = type.caption, fontFamily = FontFamily.Monospace)
         DropText("Compare this with the certificate details your browser shows before trusting this phone.", style = type.caption, color = secondary)
     }
     DropCard {

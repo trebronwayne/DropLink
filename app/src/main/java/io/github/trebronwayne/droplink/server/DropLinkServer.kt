@@ -6,6 +6,7 @@ import android.os.ParcelFileDescriptor
 import io.github.trebronwayne.droplink.core.NodeIdentity
 import io.github.trebronwayne.droplink.core.PairStatus
 import io.github.trebronwayne.droplink.core.Pairing
+import io.github.trebronwayne.droplink.core.ServerStats
 import io.github.trebronwayne.droplink.core.SharedFolders
 import io.github.trebronwayne.droplink.core.TlsIdentity
 import io.ktor.http.content.OutgoingContent
@@ -16,7 +17,8 @@ import io.ktor.server.engine.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.*
+import io.ktor.utils.io.pool.DefaultPool
 import io.ktor.utils.io.jvm.javaio.toByteReadChannel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,25 +28,34 @@ import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.URLEncoder
+import java.util.concurrent.atomic.AtomicBoolean
 
 object DropLinkServer {
     private const val COOKIE = "dl_session"
     private val RISKY_INLINE = setOf("text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml", "text/javascript", "application/javascript")
 
-    fun create(context: Context, port: Int, tls: TlsIdentity.Material): EmbeddedServer<*, *> {
+    fun create(context: Context, port: Int, tls: TlsIdentity.Material?): EmbeddedServer<*, *> {
         System.setProperty("io.ktor.development", "false")
         val app = context.applicationContext
         val httpsPort = port
         return embeddedServer(CIO, applicationEnvironment { }, {
-            // HTTPS only. Ktor may clear the arrays it is given, so hand out fresh copies each time.
-            sslConnector(
-                keyStore = tls.keyStore,
-                keyAlias = TlsIdentity.ALIAS,
-                keyStorePassword = { tls.password.copyOf() },
-                privateKeyPassword = { tls.password.copyOf() }
-            ) {
-                host = "0.0.0.0"
-                this.port = httpsPort
+            if (tls != null) {
+                // HTTPS. Ktor may clear the arrays it is given, so hand out fresh copies each time.
+                sslConnector(
+                    keyStore = tls.keyStore,
+                    keyAlias = TlsIdentity.ALIAS,
+                    keyStorePassword = { tls.password.copyOf() },
+                    privateKeyPassword = { tls.password.copyOf() }
+                ) {
+                    host = "0.0.0.0"
+                    this.port = httpsPort
+                }
+            } else {
+                // Testing mode: plain HTTP (no encryption).
+                connector {
+                    host = "0.0.0.0"
+                    this.port = httpsPort
+                }
             }
         }) {
             routing {
@@ -71,7 +82,7 @@ object DropLinkServer {
                             } else {
                                 call.response.cookies.append(
                                     Cookie(
-                                        COOKIE, token, path = "/", secure = true, httpOnly = true,
+                                        COOKIE, token, path = "/", secure = tls != null, httpOnly = true,
                                         maxAge = 31_536_000, extensions = mapOf("SameSite" to "Strict")
                                     )
                                 )
@@ -107,6 +118,7 @@ object DropLinkServer {
                         JSONArray().also { a ->
                             sorted.forEach { f ->
                                 val name = f.name ?: return@forEach
+                                SharedFolders.remember(share, path, f)
                                 a.put(
                                     JSONObject().put("name", name).put("isDir", f.isDirectory).put("size", f.length())
                                         .put("mime", if (f.isDirectory) "" else (f.type ?: ContentType.defaultForFilePath(name).toString()))
@@ -170,6 +182,30 @@ object DropLinkServer {
                         DocumentContent(app, file.uri, start, count, type)
                     )
                 }
+                get("/api/speedtest/down") {
+                    if (!call.authorized()) return@get
+                    val megabytes = (call.request.queryParameters["mb"]?.toIntOrNull() ?: 25).coerceIn(1, 200)
+                    val bytes = megabytes * 1024L * 1024L
+                    call.response.header(HttpHeaders.CacheControl, "no-store")
+                    call.respond(
+                        HttpStatusCode.OK,
+                        StreamContent(LimitedInputStream(ZeroSource, bytes), bytes, ContentType.Application.OctetStream)
+                    )
+                }
+                post("/api/speedtest/up") {
+                    if (!call.authorized()) return@post
+                    val limit = 200L * 1024 * 1024
+                    val declared = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+                    if (declared != null && declared > limit) {
+                        call.json(HttpStatusCode.PayloadTooLarge, "{\"error\":\"too_large\"}")
+                        return@post
+                    }
+                    val started = System.nanoTime()
+                    val received = call.receiveChannel().discard(limit)
+                    ServerStats.add(received)
+                    val millis = (System.nanoTime() - started) / 1_000_000
+                    call.json(HttpStatusCode.OK, JSONObject().put("bytes", received).put("millis", millis).toString())
+                }
                 get("/{path...}") {
                     val rel = call.parameters.getAll("path")?.joinToString("/").orEmpty().ifEmpty { "index.html" }
                     val bytes = if (rel.contains("..")) null else try {
@@ -197,6 +233,11 @@ object DropLinkServer {
     }
 }
 
+// Large read buffers matter: the default 4 KB buffer makes big transfers CPU-bound on a phone.
+private val BigBufferPool = object : DefaultPool<ByteArray>(16) {
+    override fun produceInstance(): ByteArray = ByteArray(256 * 1024)
+}
+
 /** Streams a byte range of a shared document without loading it into memory. */
 private class DocumentContent(
     private val context: Context,
@@ -215,22 +256,64 @@ private class DocumentContent(
         if (start > 0) {
             try { input.channel.position(start) } catch (_: Exception) { input.skip(start) }
         }
-        return LimitedInputStream(input, count).toByteReadChannel()
+        return LimitedInputStream(input, count).toByteReadChannel(Dispatchers.IO, BigBufferPool)
     }
 }
 
+private class StreamContent(
+    private val stream: InputStream,
+    private val length: Long,
+    private val type: ContentType
+) : OutgoingContent.ReadChannelContent() {
+    override val contentType: ContentType? = type
+    override val contentLength: Long? = length
+
+    override fun readFrom(): ByteReadChannel = stream.toByteReadChannel(Dispatchers.IO, BigBufferPool)
+}
+
+/** Endless zero bytes, used for the speed test so storage speed is not part of the measurement. */
+private object ZeroSource : InputStream() {
+    override fun read(): Int = 0
+
+    override fun read(buffer: ByteArray, off: Int, len: Int): Int {
+        java.util.Arrays.fill(buffer, off, off + len, 0.toByte())
+        return len
+    }
+}
+
+/** Limits a stream to a byte count and reports progress to the live server statistics. */
 private class LimitedInputStream(source: InputStream, private var remaining: Long) : FilterInputStream(source) {
+    private val closed = AtomicBoolean(false)
+
+    init {
+        ServerStats.begin()
+    }
+
     override fun read(): Int {
         if (remaining <= 0) return -1
         val b = super.read()
-        if (b >= 0) remaining--
+        if (b >= 0) {
+            remaining--
+            ServerStats.add(1)
+        }
         return b
     }
 
     override fun read(buffer: ByteArray, off: Int, len: Int): Int {
         if (remaining <= 0) return -1
         val n = super.read(buffer, off, minOf(len.toLong(), remaining).toInt())
-        if (n > 0) remaining -= n
+        if (n > 0) {
+            remaining -= n
+            ServerStats.add(n.toLong())
+        }
         return n
+    }
+
+    override fun close() {
+        try {
+            super.close()
+        } finally {
+            if (closed.compareAndSet(false, true)) ServerStats.end()
+        }
     }
 }

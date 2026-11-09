@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+- Performance focus for the main server: file streaming uses 256 KB buffers, folder paths are cached briefly to avoid slow file-provider lookups, and shared-folder lookup no longer re-checks every folder per request.
+- Speed test: `/api/speedtest/down` and `/api/speedtest/up`, with a Speed test page in the web client (1 to 8 simultaneous streams) that measures the network path without touching storage.
+- Live server statistics on the phone's Home screen: active transfers, current MB/s, total served.
+- New `docs/PERFORMANCE.md` with what limits speed and how to measure it.
+
+## 0.5.1
+- On-device problem report: caught startup errors and uncaught crashes are saved and shown on Home with Copy report and Clear buttons, so problems can be reported without a computer.
+- Server startup now reports which step failed (port check, certificate, server creation, server start) instead of crashing silently.
+- Testing mode (HTTP) switch in Settings, off by default, to tell whether a problem comes from HTTPS.
+- Discovery failures can no longer stop hosting or crash the app.
+
 ## 0.5.0
 - HTTPS only: the server uses a self-signed RSA certificate created on first use and kept in app-private storage. The certificate's SHA-256 fingerprint is shown in the app so it can be compared with the browser's certificate details.
 - Pairing replaces the temporary access code: a device requests access, both screens show the same 6-digit confirmation code, and the phone owner approves or denies. Approved devices get a long-lived session token (only its hash is stored). Pending requests expire after 2 minutes and are rate limited. Trusted devices can be revoked in Settings.
