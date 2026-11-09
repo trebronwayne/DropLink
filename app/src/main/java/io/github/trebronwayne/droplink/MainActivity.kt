@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -26,6 +28,7 @@ import io.github.trebronwayne.droplink.core.NetworkAddresses
 import io.github.trebronwayne.droplink.core.NodeIdentity
 import io.github.trebronwayne.droplink.core.PairStatus
 import io.github.trebronwayne.droplink.core.Pairing
+import io.github.trebronwayne.droplink.core.SelfTest
 import io.github.trebronwayne.droplink.core.ServerStats
 import io.github.trebronwayne.droplink.core.SharedFolder
 import io.github.trebronwayne.droplink.core.SharedFolders
@@ -48,6 +51,8 @@ class MainActivity : ComponentActivity() {
     private var folders by mutableStateOf(emptyList<SharedFolder>())
     private var useHttp by mutableStateOf(false)
     private var diagnostics by mutableStateOf("")
+    private var testResults by mutableStateOf(emptyList<String>())
+    private var batteryRestricted by mutableStateOf(false)
 
     // Hosting works even if the user declines; only the visible notifications are lost.
     private val notificationPermission =
@@ -95,6 +100,8 @@ class MainActivity : ComponentActivity() {
                     useHttp = useHttp,
                     diagnostics = diagnostics,
                     stats = stats,
+                    testResults = testResults,
+                    batteryRestricted = batteryRestricted,
                     onStart = ::requestStartHosting,
                     onStop = ::stopHostingService,
                     onRefresh = ::refreshAddresses,
@@ -105,7 +112,10 @@ class MainActivity : ComponentActivity() {
                     onClearDiagnostics = {
                         CrashLog.clear(this@MainActivity)
                         diagnostics = ""
-                    }
+                    },
+                    onTest = ::runSelfTest,
+                    onOpenLocal = ::openOnThisPhone,
+                    onOpenBatterySettings = ::openBatterySettings
                 )
                 val files = remember(folders) {
                     FilesUi(
@@ -162,6 +172,27 @@ class MainActivity : ComponentActivity() {
         refreshAddresses()
         folders = SharedFolders.list(this)
         diagnostics = CrashLog.read(this)
+        batteryRestricted = !getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+    }
+
+    private fun runSelfTest() {
+        lifecycleScope.launch {
+            testResults = listOf("Testing…")
+            testResults = withContext(Dispatchers.IO) { SelfTest.run(LocalServerService.PORT) }
+        }
+    }
+
+    private fun openOnThisPhone() {
+        val scheme = if (useHttp) "http" else "https"
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$scheme://127.0.0.1:${LocalServerService.PORT}/")))
+        } catch (_: ActivityNotFoundException) { }
+    }
+
+    private fun openBatterySettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        } catch (_: ActivityNotFoundException) { }
     }
 
     private fun refreshAddresses() {

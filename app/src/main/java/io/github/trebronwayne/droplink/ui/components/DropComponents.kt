@@ -21,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.NetworkCheck
+import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Button
@@ -198,7 +200,10 @@ fun DropDeviceCard(
     onStopHosting: () -> Unit,
     onRefreshAddresses: () -> Unit,
     error: String? = null,
-    stats: StatsSnapshot? = null
+    stats: StatsSnapshot? = null,
+    testResults: List<String> = emptyList(),
+    onTest: () -> Unit = {},
+    onOpenLocal: () -> Unit = {}
 ) {
     val type = DropTheme.type
     val secondary = DropTheme.colors.textSecondary
@@ -245,6 +250,15 @@ fun DropDeviceCard(
                     Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.ContentCopy, enabled = addresses.isNotEmpty()
                 )
                 DropButton("Refresh", onRefreshAddresses, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Refresh)
+            }
+            if (testResults.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
+                    testResults.forEach { DropText(it, style = type.caption, fontFamily = FontFamily.Monospace) }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+                DropButton("Open on this phone", onOpenLocal, Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.OpenInBrowser)
+                DropButton("Test connection", onTest, Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.NetworkCheck)
             }
             DropButton("Stop hosting", onStopHosting, Modifier.fillMaxWidth(), DropButtonStyle.Secondary, Icons.Filled.Stop)
         } else {

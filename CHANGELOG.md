@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+- Reliability: while hosting, the service holds a partial wake lock and a Wi-Fi lock, and Settings has a "Keep hosting reliable" card with battery-optimization status and a shortcut to the battery settings. If Android stops the hosting service unexpectedly, the problem report now says so.
+- Test connection button on the device card: checks that the server answers on this phone and on each network address, and lists the phone's network interfaces. Shows whether a problem is the server or the network.
+- Open on this phone button: opens the server through this phone's loopback address, so you can check the server without any other device.
+- New `docs/TROUBLESHOOTING.md`.
+
 ## 0.6.1
 - Fix: starting the server crashed with "CIO Engine does not currently support HTTPS". HTTPS is now terminated by a built-in TLS front end using Android's own TLS stack; the DropLink server behind it listens on this phone's loopback address only.
 - Testing mode (HTTP) still serves plain HTTP directly on the public port.

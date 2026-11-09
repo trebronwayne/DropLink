@@ -7,7 +7,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.Build
+import android.net.wifi.WifiManager
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import io.github.trebronwayne.droplink.MainActivity
 import io.github.trebronwayne.droplink.core.CrashLog
@@ -33,6 +35,8 @@ class LocalServerService : Service() {
     private val starting = AtomicBoolean(false)
     @Volatile private var server: EmbeddedServer<*, *>? = null
     @Volatile private var frontend: TlsFrontend? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -99,6 +103,7 @@ class LocalServerService : Service() {
                 Pairing.onRequest = { request -> notifyPairing(request) }
                 _hostingState.value = true
                 ServerStats.start()
+                acquireLocks()
                 try {
                     Discovery.advertise(
                         applicationContext, NodeIdentity.getOrCreateNodeId(applicationContext),
@@ -120,6 +125,7 @@ class LocalServerService : Service() {
     private fun stopHosting() {
         _hostingState.value = false
         ServerStats.stop()
+        releaseLocks()
         Pairing.onRequest = null
         Pairing.clearRequests()
         try { Discovery.stopAdvertising() } catch (_: Throwable) { }
@@ -132,6 +138,36 @@ class LocalServerService : Service() {
         if (engine != null) {
             Thread { try { engine.stop(300, 1000) } catch (_: Throwable) { } }.apply { name = "DropLink-ServerStop" }.start()
         }
+    }
+
+    // Keep the CPU and the Wi-Fi radio awake while hosting, otherwise Android may pause transfers when the screen is off.
+    private fun acquireLocks() {
+        try {
+            val power = getSystemService(PowerManager::class.java)
+            wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DropLink:hosting").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            val wifi = applicationContext.getSystemService(WifiManager::class.java)
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            wifiLock = wifi.createWifiLock(mode, "DropLink:hosting").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (e: Throwable) {
+            CrashLog.record("Could not hold the wake locks (hosting continues)", e)
+        }
+    }
+
+    private fun releaseLocks() {
+        try { wakeLock?.let { if (it.isHeld) it.release() } } catch (_: Throwable) { }
+        try { wifiLock?.let { if (it.isHeld) it.release() } } catch (_: Throwable) { }
+        wakeLock = null
+        wifiLock = null
     }
 
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
@@ -182,6 +218,9 @@ class LocalServerService : Service() {
     }
 
     override fun onDestroy() {
+        if (_hostingState.value) {
+            CrashLog.record("Hosting service was stopped by Android, not by you. Check battery and background settings.")
+        }
         stopHosting()
         super.onDestroy()
     }

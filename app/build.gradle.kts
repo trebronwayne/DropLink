@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.trebronwayne.droplink"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("droplinkVersionCode").orNull?.toInt() ?: 8
-        versionName = providers.gradleProperty("droplinkVersionName").orNull ?: "0.6.1"
+        versionCode = providers.gradleProperty("droplinkVersionCode").orNull?.toInt() ?: 9
+        versionName = providers.gradleProperty("droplinkVersionName").orNull ?: "0.7.0"
     }
 
     if (!releaseKeystorePath.isNullOrBlank()) {

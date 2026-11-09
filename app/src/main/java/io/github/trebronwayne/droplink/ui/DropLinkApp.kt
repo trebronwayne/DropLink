@@ -96,11 +96,16 @@ data class HostUi(
     val useHttp: Boolean,
     val diagnostics: String,
     val stats: StatsSnapshot,
+    val testResults: List<String>,
+    val batteryRestricted: Boolean,
     val onStart: () -> Unit,
     val onStop: () -> Unit,
     val onRefresh: () -> Unit,
     val onUseHttpChange: (Boolean) -> Unit,
-    val onClearDiagnostics: () -> Unit
+    val onClearDiagnostics: () -> Unit,
+    val onTest: () -> Unit,
+    val onOpenLocal: () -> Unit,
+    val onOpenBatterySettings: () -> Unit
 )
 
 data class PairingUi(
@@ -158,7 +163,7 @@ private fun ScreenHost(
         Destination.Home -> ScreenScaffold("Home", "Your phone. Your server. Your network.", wide) {
             if (host.diagnostics.isNotBlank()) DiagnosticsCard(host.diagnostics, host.onClearDiagnostics)
             pairing.requests.forEach { PairingRequestCard(it, pairing.onApprove, pairing.onDeny) }
-            DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh, host.error, host.stats)
+            DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh, host.error, host.stats, host.testResults, host.onTest, host.onOpenLocal)
             DropSectionTitle("Network workspace")
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
                 DropInfoCard(Icons.Filled.Dns, "Servers", "${network.nodes.size} found nearby", Modifier.weight(1f)) { onNavigate(Destination.Servers) }
@@ -285,6 +290,22 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
             style = DropButtonStyle.Secondary, icon = Icons.Outlined.ContentCopy,
             enabled = nodeId.startsWith("dl-")
         )
+    }
+    DropCard {
+        DropText("Keep hosting reliable", style = type.subtitle)
+        DropText(
+            if (host.batteryRestricted) {
+                "Battery optimization is on for DropLink, so Android may pause hosting when the screen is off or the app is in the background."
+            } else {
+                "Battery optimization is off for DropLink. Good."
+            },
+            style = type.body
+        )
+        DropText(
+            "Also turn off Data Saver and Battery Saver while hosting, since both can limit background apps.",
+            style = type.caption, color = secondary
+        )
+        DropButton("Open battery settings", host.onOpenBatterySettings, style = DropButtonStyle.Secondary, icon = Icons.Outlined.Settings)
     }
     DropCard {
         DropText("Connection mode", style = type.subtitle)
