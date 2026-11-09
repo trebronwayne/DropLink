@@ -11,6 +11,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
 import android.net.wifi.WifiManager
+import android.os.Process
+import java.net.HttpURLConnection
+import java.net.URL
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
@@ -28,6 +31,7 @@ import io.github.trebronwayne.droplink.core.Pairing
 import io.github.trebronwayne.droplink.core.ServerStats
 import io.github.trebronwayne.droplink.core.TlsIdentity
 import io.github.trebronwayne.droplink.server.DropLinkServer
+import io.github.trebronwayne.droplink.server.StaticAssets
 import io.github.trebronwayne.droplink.server.TlsFrontend
 import io.ktor.server.engine.EmbeddedServer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +51,8 @@ class LocalServerService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     private var screenReceiver: BroadcastReceiver? = null
     @Volatile private var watchdog: Thread? = null
+    @Volatile private var wifiLockHighPerf: WifiManager.WifiLock? = null
+    @Volatile private var activeBackendPort: Int = PORT
 
     override fun onCreate() {
         super.onCreate()
@@ -58,6 +64,10 @@ class LocalServerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) EventLog.add("Android restarted the hosting service after it had been stopped")
+        if (intent?.action == ACTION_KEEPALIVE) {
+            // The alarm fired: make sure we are still foreground and still hosting.
+            scheduleKeepAlive()
+        }
         if (intent?.action == ACTION_STOP) {
             EventLog.add("Stop requested by you")
             stopHosting()
@@ -67,7 +77,11 @@ class LocalServerService : Service() {
         }
         try {
             // Must be called promptly after startForegroundService().
-            startForeground(NOTIFICATION_ID, buildNotification())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, buildNotification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            } else {
+                startForeground(NOTIFICATION_ID, buildNotification())
+            }
         } catch (e: Throwable) {
             CrashLog.record("Could not start the foreground service", e)
             _errorState.value = "Android would not start the hosting service: ${e.javaClass.simpleName}: ${e.message ?: "no details"}"
@@ -75,6 +89,7 @@ class LocalServerService : Service() {
             return START_NOT_STICKY
         }
         startHosting()
+        scheduleKeepAlive()
         return START_STICKY
     }
 
@@ -82,6 +97,7 @@ class LocalServerService : Service() {
         if (!starting.compareAndSet(false, true)) return
         _errorState.value = null
         Thread {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_FOREGROUND)
             var stage = "checking the port"
             try {
                 val useHttp = HostingOptions.useHttp(applicationContext)
@@ -99,11 +115,14 @@ class LocalServerService : Service() {
                 }
                 stage = "creating the server"
                 val backendPort = if (useHttp) PORT else freePort()
+                activeBackendPort = backendPort
+                StaticAssets.warm(applicationContext)
                 val engine = DropLinkServer.create(
                     applicationContext,
                     bindHost = if (useHttp) "0.0.0.0" else "127.0.0.1",
                     port = backendPort,
-                    secureCookies = !useHttp
+                    secureCookies = !useHttp,
+                    publicPort = PORT
                 )
                 stage = "starting the server"
                 engine.start(wait = false)
@@ -120,6 +139,7 @@ class LocalServerService : Service() {
                 acquireLocks()
                 registerScreenReceiver()
                 startWatchdog()
+                scheduleKeepAlive()
                 EventLog.add("Hosting started on port $PORT (${if (useHttp) "HTTP testing mode" else "HTTPS"})")
                 try {
                     Discovery.advertise(
@@ -144,6 +164,7 @@ class LocalServerService : Service() {
         _hostingState.value = false
         watchdog?.interrupt()
         watchdog = null
+        cancelKeepAlive()
         unregisterScreenReceiver()
         if (wasHosting) EventLog.add("Hosting stopped")
         ServerStats.stop()
@@ -162,7 +183,10 @@ class LocalServerService : Service() {
         }
     }
 
-    // Keep the CPU and the Wi-Fi radio awake while hosting, otherwise Android may pause transfers when the screen is off.
+    // Keep the CPU and the Wi-Fi radio awake while hosting.
+    // WIFI_MODE_FULL_LOW_LATENCY only takes effect while the app is on screen, so it alone is useless in the background.
+    // The high-performance lock is what keeps the radio out of power-save while another app is in front or the screen is off.
+    @Suppress("DEPRECATION")
     private fun acquireLocks() {
         try {
             val power = getSystemService(PowerManager::class.java)
@@ -170,26 +194,33 @@ class LocalServerService : Service() {
                 setReferenceCounted(false)
                 acquire()
             }
+        } catch (e: Throwable) {
+            CrashLog.record("Could not hold the CPU wake lock (hosting continues)", e)
+        }
+        try {
             val wifi = applicationContext.getSystemService(WifiManager::class.java)
-            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-            } else {
-                WifiManager.WIFI_MODE_FULL_HIGH_PERF
-            }
-            wifiLock = wifi.createWifiLock(mode, "DropLink:hosting").apply {
+            wifiLockHighPerf = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "DropLink:hosting-perf").apply {
                 setReferenceCounted(false)
                 acquire()
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "DropLink:hosting-latency").apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }
         } catch (e: Throwable) {
-            CrashLog.record("Could not hold the wake locks (hosting continues)", e)
+            CrashLog.record("Could not hold the Wi-Fi lock (hosting continues)", e)
         }
     }
 
     private fun releaseLocks() {
         try { wakeLock?.let { if (it.isHeld) it.release() } } catch (_: Throwable) { }
         try { wifiLock?.let { if (it.isHeld) it.release() } } catch (_: Throwable) { }
+        try { wifiLockHighPerf?.let { if (it.isHeld) it.release() } } catch (_: Throwable) { }
         wakeLock = null
         wifiLock = null
+        wifiLockHighPerf = null
     }
 
     private fun registerScreenReceiver() {
@@ -227,6 +258,7 @@ class LocalServerService : Service() {
     private fun startWatchdog() {
         watchdog?.interrupt()
         val thread = Thread {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_FOREGROUND)
             var lastBeat = SystemClock.elapsedRealtime()
             var failures = 0
             try {
@@ -261,13 +293,44 @@ class LocalServerService : Service() {
         thread.start()
     }
 
+    /** A real request to the engine, not just an open socket: a frozen server still accepts TCP connections. */
     private fun loopbackAnswers(): Boolean {
         return try {
-            Socket().use { it.connect(InetSocketAddress("127.0.0.1", PORT), 2_000) }
-            true
+            val c = URL("http://127.0.0.1:$activeBackendPort/health").openConnection() as HttpURLConnection
+            c.connectTimeout = 2_000
+            c.readTimeout = 3_000
+            c.useCaches = false
+            val ok = c.responseCode == 200
+            c.disconnect()
+            ok
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Inexact alarms are allowed to fire in Doze. Each one re-enters the service, which keeps it marked as active
+     * and lets the watchdog verify the server even if the watchdog thread itself was paused.
+     */
+    private fun scheduleKeepAlive() {
+        try {
+            val alarm = getSystemService(android.app.AlarmManager::class.java)
+            val pi = PendingIntent.getService(
+                this, 3, Intent(this, LocalServerService::class.java).setAction(ACTION_KEEPALIVE),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            alarm.setAndAllowWhileIdle(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + KEEPALIVE_MS, pi)
+        } catch (_: Throwable) { }
+    }
+
+    private fun cancelKeepAlive() {
+        try {
+            val alarm = getSystemService(android.app.AlarmManager::class.java)
+            alarm.cancel(PendingIntent.getService(
+                this, 3, Intent(this, LocalServerService::class.java).setAction(ACTION_KEEPALIVE),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            ))
+        } catch (_: Throwable) { }
     }
 
     private fun restartServer() {
@@ -321,6 +384,8 @@ class LocalServerService : Service() {
             .setContentText("Sharing selected folders on port $PORT")
             .setContentIntent(openApp)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
             .build()
     }
@@ -336,6 +401,7 @@ class LocalServerService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         EventLog.add("App was swiped away from recent apps (hosting continues)")
+        if (_hostingState.value) scheduleKeepAlive()
         super.onTaskRemoved(rootIntent)
     }
 
@@ -350,11 +416,13 @@ class LocalServerService : Service() {
         const val PORT = 47831
         const val ACTION_START = "io.github.trebronwayne.droplink.START_HOSTING"
         const val ACTION_STOP = "io.github.trebronwayne.droplink.STOP_HOSTING"
+        const val ACTION_KEEPALIVE = "io.github.trebronwayne.droplink.KEEPALIVE"
         private const val CHANNEL_ID = "droplink_hosting"
         private const val NOTIFICATION_ID = 47831
         private const val PAIRING_CHANNEL_ID = "droplink_pairing"
         private const val PAIRING_NOTIFICATION_ID = 47832
-        private const val WATCHDOG_INTERVAL_MS = 15_000L
+        private const val WATCHDOG_INTERVAL_MS = 10_000L
+        private const val KEEPALIVE_MS = 4 * 60_000L
 
         private val _hostingState = MutableStateFlow(false)
         private val _errorState = MutableStateFlow<String?>(null)

@@ -48,7 +48,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     private var nodeId by mutableStateOf("Creating secure device identity…")
     private var fingerprint by mutableStateOf("Generating certificate…")
-    private var addresses by mutableStateOf(emptyList<String>())
+    private var addresses by mutableStateOf(emptyList<io.github.trebronwayne.droplink.core.HostAddress>())
     private var folders by mutableStateOf(emptyList<SharedFolder>())
     private var useHttp by mutableStateOf(false)
     private var diagnostics by mutableStateOf("")
@@ -201,16 +201,20 @@ class MainActivity : ComponentActivity() {
         } catch (_: ActivityNotFoundException) { }
     }
 
+    /** Shows Android's one-tap "Allow DropLink to run in the background" dialog; falls back to the settings list. */
+    @android.annotation.SuppressLint("BatteryLife")
     private fun openBatterySettings() {
         try {
-            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        } catch (_: ActivityNotFoundException) { }
+            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+        } catch (_: Exception) {
+            try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: ActivityNotFoundException) { }
+        }
     }
 
     private fun refreshAddresses() {
         lifecycleScope.launch {
             addresses = withContext(Dispatchers.IO) {
-                NetworkAddresses.baseUrls(LocalServerService.PORT, https = !useHttp)
+                NetworkAddresses.reachable()
             }
         }
     }
@@ -230,6 +234,12 @@ class MainActivity : ComponentActivity() {
     private fun startHostingService() {
         try {
             startForegroundService(Intent(this, LocalServerService::class.java).setAction(LocalServerService.ACTION_START))
+            // Without this exemption Android freezes hosting as soon as another app is in front. Ask once, right away.
+            val asked = getSharedPreferences("droplink_ui", MODE_PRIVATE)
+            if (!getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName) && !asked.getBoolean("asked_battery", false)) {
+                asked.edit().putBoolean("asked_battery", true).apply()
+                openBatterySettings()
+            }
         } catch (e: Throwable) {
             CrashLog.record("Could not start the hosting service", e)
             diagnostics = CrashLog.read(this)

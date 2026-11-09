@@ -31,7 +31,10 @@ class TlsFrontend(
     private val connections = Semaphore(200)
     private val openSockets: MutableSet<Socket> = ConcurrentHashMap.newKeySet()
     private val pool = Executors.newCachedThreadPool(ThreadFactory { task ->
-        Thread(task, "DropLink-tls").apply { isDaemon = true }
+        Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_FOREGROUND)
+            task.run()
+        }, "DropLink-tls").apply { isDaemon = true }
     })
 
     fun start() {
@@ -39,9 +42,13 @@ class TlsFrontend(
         keyManagers.init(tls.keyStore, tls.password)
         val context = SSLContext.getInstance("TLS")
         context.init(keyManagers.keyManagers, null, null)
+        // Let returning browsers resume sessions instead of repeating the expensive RSA handshake.
+        context.serverSessionContext.sessionCacheSize = 1024
+        context.serverSessionContext.sessionTimeout = 24 * 3600
 
         val server = context.serverSocketFactory.createServerSocket() as SSLServerSocket
         server.reuseAddress = true
+        server.receiveBufferSize = 512 * 1024
         val protocols = server.supportedProtocols.filter { it == "TLSv1.3" || it == "TLSv1.2" }
         if (protocols.isNotEmpty()) server.enabledProtocols = protocols.toTypedArray()
         server.bind(InetSocketAddress(publicPort))

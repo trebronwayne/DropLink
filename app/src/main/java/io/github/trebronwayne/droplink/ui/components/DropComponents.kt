@@ -1,6 +1,15 @@
 package io.github.trebronwayne.droplink.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import io.github.trebronwayne.droplink.core.HostAddress
+import io.github.trebronwayne.droplink.core.Qr
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -195,7 +204,7 @@ fun DropDeviceCard(
     isHosting: Boolean,
     port: Int,
     fingerprint: String,
-    addresses: List<String>,
+    addresses: List<HostAddress>,
     onStartHosting: () -> Unit,
     onStopHosting: () -> Unit,
     onRefreshAddresses: () -> Unit,
@@ -203,8 +212,11 @@ fun DropDeviceCard(
     stats: StatsSnapshot? = null,
     testResults: List<String> = emptyList(),
     onTest: () -> Unit = {},
-    onOpenLocal: () -> Unit = {}
+    onOpenLocal: () -> Unit = {},
+    https: Boolean = true
 ) {
+    val context = LocalContext.current
+    val urls = addresses.map { it.url(port, https) }
     val type = DropTheme.type
     val secondary = DropTheme.colors.textSecondary
     val clipboard = LocalClipboardManager.current
@@ -227,7 +239,15 @@ fun DropDeviceCard(
                 if (addresses.isEmpty()) {
                     DropText("No network address yet. Connect to Wi-Fi or turn on your hotspot, then tap Refresh.", style = type.body)
                 } else {
-                    addresses.forEach { DropText(it, style = type.bodyStrong, fontFamily = FontFamily.Monospace) }
+                    DropText("Scan the code with the other device's camera. It opens DropLink with nothing to type.", style = type.caption, color = secondary)
+                    addresses.forEach { a ->
+                        val url = a.url(port, https)
+                        Column(Modifier.fillMaxWidth().padding(top = DropSpacing.s), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
+                            DropText(a.kind.label, style = type.caption, color = secondary)
+                            QrImage(url)
+                            DropText(url, style = type.bodyStrong, fontFamily = FontFamily.Monospace)
+                        }
+                    }
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
@@ -246,8 +266,17 @@ fun DropDeviceCard(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
                 DropButton(
-                    "Copy address", { addresses.firstOrNull()?.let { clipboard.setText(AnnotatedString(it)) } },
-                    Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.ContentCopy, enabled = addresses.isNotEmpty()
+                    "Copy", { urls.firstOrNull()?.let { clipboard.setText(AnnotatedString(it)) } },
+                    Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.ContentCopy, enabled = urls.isNotEmpty()
+                )
+                DropButton(
+                    "Share", {
+                        urls.firstOrNull()?.let { link ->
+                            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link)
+                            context.startActivity(Intent.createChooser(send, "Share DropLink address").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                    },
+                    Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.Share, enabled = urls.isNotEmpty()
                 )
                 DropButton("Refresh", onRefreshAddresses, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Refresh)
             }
@@ -271,3 +300,17 @@ fun DropDeviceCard(
 
 private fun formatBytes(bytes: Long): String =
     if (bytes >= 1_073_741_824L) "%.2f GB".format(bytes / 1_073_741_824.0) else "%.0f MB".format(bytes / 1_048_576.0)
+
+
+/** A QR code drawn natively; always black on white with a quiet zone, so any phone camera can read it. */
+@Composable
+fun QrImage(text: String, modifier: Modifier = Modifier.size(190.dp)) {
+    val grid = remember(text) { try { Qr.modules(text) } catch (_: Throwable) { null } } ?: return
+    Canvas(modifier.background(Color.White, RoundedCornerShape(14.dp)).padding(12.dp)) {
+        val n = grid.size
+        val cell = size.minDimension / n
+        for (y in 0 until n) for (x in 0 until n) {
+            if (grid[y][x]) drawRect(Color.Black, Offset(x * cell, y * cell), Size(cell + 0.6f, cell + 0.6f))
+        }
+    }
+}

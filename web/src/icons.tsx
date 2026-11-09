@@ -1,6 +1,7 @@
 import type { SVGProps } from 'react'
 
-export type Kind = 'folder' | 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'archive' | 'file'
+import type { Kind } from './util'
+export type { Kind }
 type IconProps = SVGProps<SVGSVGElement>
 
 const line = (p: IconProps): IconProps => ({
@@ -117,3 +118,26 @@ export function FileTypeIcon({ kind, size = 32 }: { kind: Kind; size?: number })
       )
   }
 }
+
+export const PlayIcon = (p: IconProps) => <svg {...line({ strokeWidth: 0, fill: 'currentColor', ...p })}><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" /></svg>
+export const PauseIcon = (p: IconProps) => <svg {...line({ strokeWidth: 0, fill: 'currentColor', ...p })}><rect x="6.5" y="5" width="4" height="14" rx="1.2" /><rect x="13.5" y="5" width="4" height="14" rx="1.2" /></svg>
+export const NextIcon = (p: IconProps) => <svg {...line(p)}><path d="M6 5.5v13l9-6.5-9-6.5ZM18.5 5v14" /></svg>
+export const PrevIcon = (p: IconProps) => <svg {...line(p)}><path d="M18 5.5v13L9 12l9-6.5ZM5.5 5v14" /></svg>
+export const ShuffleIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 7h3c5 0 5 10 10 10h3m0 0-2.5-2.5M20 17l-2.5 2.5M4 17h3c1.6 0 2.7-.8 3.6-1.9M20 7h-3c-1.6 0-2.7.8-3.6 1.9M20 7l-2.5-2.5M20 7l-2.5 2.5" /></svg>
+export const RepeatIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 11V9a3 3 0 0 1 3-3h12m0 0-2.5-2.5M19 6l-2.5 2.5M20 13v2a3 3 0 0 1-3 3H5m0 0 2.5 2.5M5 18l2.5-2.5" /></svg>
+export const VolumeIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 10v4h3.5L12 18V6L7.5 10H4ZM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" /></svg>
+export const MuteIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 10v4h3.5L12 18V6L7.5 10H4ZM16 9.5l4 5m0-5-4 5" /></svg>
+export const StarIcon = (p: IconProps) => <svg {...line(p)}><path d="m12 4 2.4 5 5.4.7-3.9 3.8.9 5.4L12 16.3l-4.8 2.6.9-5.4L4.2 9.700l5.4-.7L12 4Z" /></svg>
+export const StarFillIcon = (p: IconProps) => <svg {...line({ fill: 'currentColor', ...p })}><path d="m12 4 2.4 5 5.4.7-3.9 3.8.9 5.4L12 16.3l-4.8 2.6.9-5.4L4.2 9.700l5.4-.7L12 4Z" /></svg>
+export const HomeIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 11.5 12 4l8 7.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1v-7.500Z" /></svg>
+export const ClockIcon = (p: IconProps) => <svg {...line(p)}><circle cx="12" cy="12" r="8" /><path d="M12 7.500V12l3 2" /></svg>
+export const QueueIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 7h12M4 12h12M4 17h7M18 14v6m0-6 3 1.500v4" /></svg>
+export const ExpandIcon = (p: IconProps) => <svg {...line(p)}><path d="M5 10V5h5M19 14v5h-5M5 5l5.500 5.500M19 19l-5.500-5.500" /></svg>
+export const MinimizeIcon = (p: IconProps) => <svg {...line(p)}><path d="m6 9 6 6 6-6" /></svg>
+export const CheckIcon = (p: IconProps) => <svg {...line(p)}><path d="m5 12.500 4.500 4.500L19 7.500" /></svg>
+export const PlusIcon = (p: IconProps) => <svg {...line(p)}><path d="M12 5v14M5 12h14" /></svg>
+export const SettingsIcon = (p: IconProps) => <svg {...line(p)}><circle cx="12" cy="12" r="3" /><path d="M12 3v2.500M12 18.500V21M3 12h2.500M18.500 12H21M5.600 5.600l1.800 1.800M16.600 16.600l1.800 1.800M5.600 18.400l1.800-1.800M16.600 7.400l1.800-1.800" /></svg>
+export const PipIcon = (p: IconProps) => <svg {...line(p)}><rect x="3.500" y="5" width="17" height="14" rx="2.500" /><rect x="12" y="12" width="6.500" height="4.500" rx="1" fill="currentColor" /></svg>
+export const OfflineIcon = (p: IconProps) => <svg {...line(p)}><path d="M3 9a14 14 0 0 1 18 0M6 12.500a9 9 0 0 1 12 0M9.200 16a4.500 4.500 0 0 1 5.600 0M4 4l16 16" /></svg>
+export const TrashIcon = (p: IconProps) => <svg {...line(p)}><path d="M5 7h14M10 7V5h4v2M7 7l.8 12h8.400L17 7" /></svg>
+export const QrIcon = (p: IconProps) => <svg {...line(p)}><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><path d="M14 14h3v3h-3zM20 14v.01M14 20h3m3-3v3" /></svg>

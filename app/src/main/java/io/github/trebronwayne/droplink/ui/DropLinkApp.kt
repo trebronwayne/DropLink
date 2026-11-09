@@ -94,7 +94,7 @@ enum class Destination(val label: String, val icon: ImageVector, val selectedIco
 
 data class HostUi(
     val isHosting: Boolean,
-    val addresses: List<String>,
+    val addresses: List<io.github.trebronwayne.droplink.core.HostAddress>,
     val fingerprint: String,
     val error: String?,
     val useHttp: Boolean,
@@ -170,7 +170,7 @@ private fun ScreenHost(
         Destination.Home -> ScreenScaffold("Home", "Your phone. Your server. Your network.", wide, showLogo = true) {
             if (host.diagnostics.isNotBlank()) DiagnosticsCard(host.diagnostics, host.onClearDiagnostics)
             pairing.requests.forEach { PairingRequestCard(it, pairing.onApprove, pairing.onDeny) }
-            DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh, host.error, host.stats, host.testResults, host.onTest, host.onOpenLocal)
+            DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh, host.error, host.stats, host.testResults, host.onTest, host.onOpenLocal, !host.useHttp)
             DropSectionTitle("Network workspace")
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
                 DropInfoCard(Icons.Filled.Dns, "Servers", "${network.nodes.size} found nearby", Modifier.weight(1f)) { onNavigate(Destination.Servers) }

@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Speed
+- Folders are read with one Storage Access Framework query (was about five queries per file) and cached briefly; listings open near-instantly.
+- Web client files are read once, gzip-compressed, served from memory with ETag, and cached forever by the browser (hashed filenames).
+- New `/api/thumb` endpoint: grid view loads small JPEG thumbnails instead of full photos.
+- Web client paints cached folder listings immediately, then refreshes; folders are prefetched on hover; long folders render in chunks.
+- TLS session cache enabled so returning browsers skip the full handshake.
+
+### Background hosting
+- Wi-Fi high-performance lock added (the low-latency lock alone only works while the app is on screen).
+- Watchdog now sends a real HTTP request to the engine every 10 s instead of only opening a socket.
+- Inexact keep-alive alarm that can fire in Doze; server threads run at foreground priority.
+- DropLink asks once, with Android's one-tap dialog, to be exempt from battery optimization.
+
+### Connecting devices
+- Each address is now labelled (Hotspot, USB tethering, Wi-Fi network). Mobile-data addresses are recognised and hidden, since nothing on a hotspot can reach them.
+- The host screen shows a QR code per address, plus Copy and Share buttons. Scanning opens DropLink with nothing to type.
+- The web client has a "Connect a device" button that shows the same QR codes (`/api/addresses`, `/api/qr`, sign-in required).
+
+### Web client
+- Rebuilt with a soft neumorphic look (light/dark/system, five accent colors).
+- Persistent player: music and video keep playing while you browse; queue, shuffle, repeat, speed, Media Session lock-screen controls, resume after reload, auto-recovery after a dropped connection.
+- Favorites, Recent, Home, file-type filters, multi-select download, Play all, swipe/preload image viewer, keyboard shortcuts.
+
 ## 0.8.0
 - Official DropLink logo, redrawn as clean vectors (`branding/droplink-logo.svg`): launcher icon (adaptive, with a themed monochrome layer), notification icon, logo in the app and in the web client, browser tab icon.
 - Web file browser rebuilt in Fluent style with React: navigation pane with shared folders, breadcrumb, command bar (filter, sort by name, date or size, ascending or descending, list or grid view), file-type SVG icon set, image thumbnails in grid view, a viewer with previous and next, keyboard shortcuts, skeleton loading, empty states, dark mode and a phone layout.

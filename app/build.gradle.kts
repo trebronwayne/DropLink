@@ -74,6 +74,7 @@ dependencies {
     implementation("io.ktor:ktor-server-core:3.0.3")
     implementation("io.ktor:ktor-server-cio:3.0.3")
     implementation("org.slf4j:slf4j-nop:2.0.16")
+    implementation("com.google.zxing:core:3.5.3")
     implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
