@@ -331,6 +331,7 @@ class LocalServerService : Service() {
             try { parts += "background restricted ${getSystemService(android.app.ActivityManager::class.java).isBackgroundRestricted}" } catch (_: Throwable) { }
             try { parts += "standby bucket ${getSystemService(android.app.usage.UsageStatsManager::class.java).appStandbyBucket} (10 active, 20 working, 30 frequent, 40 rare, 50 restricted)" } catch (_: Throwable) { }
         }
+        try { parts += "Battery Saver ${if (getSystemService(PowerManager::class.java).isPowerSaveMode) "ON (Android will pause background work)" else "off"}" } catch (_: Throwable) { }
         parts += "Android ${Build.VERSION.SDK_INT}, ${Build.MANUFACTURER}"
         return parts.joinToString(", ")
     }

@@ -207,3 +207,8 @@ button { font: inherit; color: inherit; }
 .qr-card { padding: 16px; display: grid; gap: 10px; justify-items: center; text-align: center; }
 .qr-card img { background: #fff; border-radius: 14px; width: min(200px, 100%); height: auto; aspect-ratio: 1; }
 .qr-card code { font-size: 12px; word-break: break-all; color: var(--muted); }
+
+.reconnect { display: grid; gap: 14px; justify-items: start; margin-bottom: 18px; } .pair.reconnect { justify-items: center; text-align: center; }
+.reconnect form { width: 100%; text-align: left; } .reconnect-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.scan-video { width: 100%; max-height: 52vh; object-fit: cover; background: #000; border-radius: 16px; aspect-ratio: 4 / 3; }
+.pair.reconnect .reconnect-actions { justify-content: center; } .pair.reconnect form { text-align: center; } .pair.reconnect .field-label { display:block; }

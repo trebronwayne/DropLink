@@ -17,12 +17,19 @@
 - Inexact keep-alive alarm that can fire in Doze; server threads run at foreground priority.
 - DropLink asks once, with Android's one-tap dialog, to be exempt from battery optimization.
 
+- DropLink now warns on the Home screen when Battery Saver is on while hosting (it pauses background apps), and records the Battery Saver state in the log.
+
 ### Connecting devices
 - Each address is now labelled (Hotspot, USB tethering, Wi-Fi network). Mobile-data addresses are recognised and hidden, since nothing on a hotspot can reach them.
 - The host screen shows a QR code per address, plus Copy and Share buttons. Scanning opens DropLink with nothing to type.
 - The web client has a "Connect a device" button that shows the same QR codes (`/api/addresses`, `/api/qr`, sign-in required).
 
 - Optional, collapsed Wi-Fi join code under the main QR ("Device not on this hotspot yet?"); name and password are entered once and kept only on the phone.
+
+### Install and reconnect
+- Web manifest, icons and a service worker so the client can be installed and opens from a cached shell (browsers only run the service worker on trusted HTTPS, so with the phone's self-signed certificate it may be a shortcut only).
+- "Can't reach the phone" screen: retries automatically, offers Scan new QR code (BarcodeDetector) and typing the new address.
+- `connect/`: an optional launcher PWA to host on trusted HTTPS; remembers the address, opens it in one tap, rescans when it changes.
 
 ### Web client
 - Rebuilt with a soft neumorphic look (light/dark/system, five accent colors).

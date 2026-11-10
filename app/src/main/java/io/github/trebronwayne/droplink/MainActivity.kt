@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
     private var addresses by mutableStateOf(emptyList<io.github.trebronwayne.droplink.core.HostAddress>())
     private var folders by mutableStateOf(emptyList<SharedFolder>())
     private var useHttp by mutableStateOf(false)
+    private var batterySaver by mutableStateOf(false)
     private var diagnostics by mutableStateOf("")
     private var events by mutableStateOf("")
     private var testResults by mutableStateOf(emptyList<String>())
@@ -101,6 +102,10 @@ class MainActivity : ComponentActivity() {
                     fingerprint = fingerprint,
                     error = error,
                     useHttp = useHttp,
+                    batterySaver = batterySaver,
+                    onOpenBatterySaver = {
+                        try { startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)) } catch (_: ActivityNotFoundException) { }
+                    },
                     diagnostics = diagnostics,
                     events = events,
                     stats = stats,
@@ -185,6 +190,7 @@ class MainActivity : ComponentActivity() {
         diagnostics = CrashLog.read(this)
         events = EventLog.read(this)
         batteryRestricted = !getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+        batterySaver = getSystemService(PowerManager::class.java).isPowerSaveMode
     }
 
     private fun runSelfTest() {

@@ -4,6 +4,7 @@ import {
   ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronRightIcon, ClockIcon, CloseIcon, DownloadIcon, FileTypeIcon, GaugeIcon, GridIcon,
   HomeIcon, ListIcon, Logo, OfflineIcon, PlayIcon, PlusIcon, QrIcon, RefreshIcon, SearchIcon, SettingsIcon, ShieldIcon, SortIcon, StarFillIcon, StarIcon
 } from './icons'
+import { Reconnect } from './Reconnect'
 import { PlayerProvider, Track, usePlayer } from './player'
 import { ACCENTS, load, Ref, save, ThemeMode, useFavorites, useRecents, useTheme } from './prefs'
 import { formatDate, formatSize, Kind, kindOf } from './util'
@@ -460,7 +461,9 @@ function Home({ shares, fav, recents }: { shares: Share[]; fav: ReturnType<typeo
   )
 }
 
-function Settings({ theme }: { theme: ReturnType<typeof useTheme> }) {
+type InstallEvent = Event & { prompt: () => Promise<void> }
+
+function Settings({ theme, install, standalone }: { theme: ReturnType<typeof useTheme>; install: InstallEvent | null; standalone: boolean }) {
   return (
     <>
       <h2 className="page-title">Settings</h2>
@@ -476,6 +479,10 @@ function Settings({ theme }: { theme: ReturnType<typeof useTheme> }) {
               {theme.accent === k && <CheckIcon />}</button>
           ))}
         </div>
+        <h3>Install as an app</h3>
+        {standalone ? <p className="muted">DropLink is running as an installed app.</p>
+          : install ? <button className="nm-btn primary" onClick={() => install.prompt()}><DownloadIcon /> Install DropLink</button>
+          : <p className="muted small">In Chrome open the ⋮ menu and choose Install app or Add to Home screen. DropLink uses a self-signed certificate, so some browsers only create a shortcut instead of a full app; a shortcut still opens it in one tap.</p>}
         <p className="muted small">Keyboard: Space play/pause · J / L back/forward 10 s · N / P next/previous track.</p>
       </div>
     </>
@@ -583,12 +590,30 @@ function Shell() {
   const [shares, setShares] = useState<Share[]>(() => load<Share[]>('shares', []))
   const [route, setRoute] = useState<Route>(parseHash())
   const [connect, setConnect] = useState(false)
+  const [down, setDown] = useState(false)
+  const [installEvent, setInstallEvent] = useState<InstallEvent | null>(null)
+  const standalone = matchMedia('(display-mode: standalone)').matches
+  useEffect(() => {
+    const on = (e: Event) => { e.preventDefault(); setInstallEvent(e as InstallEvent) }
+    window.addEventListener('beforeinstallprompt', on)
+    return () => window.removeEventListener('beforeinstallprompt', on)
+  }, [])
 
   const loadShares = useCallback(async () => {
-    try { const s = await api.shares(); setShares(s); save('shares', s); setAuthed(true) }
-    catch (e) { if (e instanceof AuthError) { save('shares', null); setAuthed(false) } else setAuthed(a => a ?? false) }
+    try { const s = await api.shares(); setShares(s); save('shares', s); setAuthed(true); setDown(false) }
+    catch (e) {
+      if (e instanceof AuthError) { save('shares', null); setAuthed(false); setDown(false) }
+      else if (e instanceof OfflineError) setDown(true)
+      else setAuthed(a => a ?? false)
+    }
   }, [])
   useEffect(() => { loadShares() }, [loadShares])
+  // While the phone is unreachable keep checking, and recover on its own as soon as it answers.
+  useEffect(() => {
+    if (!down) return
+    const id = window.setInterval(async () => { if (await api.ping()) loadShares() }, 3000)
+    return () => window.clearInterval(id)
+  }, [down, loadShares])
   useEffect(() => {
     const onHash = () => { setRoute(parseHash()); window.scrollTo({ top: 0 }) }
     window.addEventListener('hashchange', onHash)
@@ -611,6 +636,7 @@ function Shell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [player])
 
+  if (down && !authed) return <Reconnect full onRetry={loadShares} />
   if (authed === null) return <main className="center"><div className="splash"><Logo size={64} /><p className="muted">Connecting…</p></div></main>
   if (!authed) return <Pair onDone={loadShares} />
 
@@ -625,6 +651,7 @@ function Shell() {
       <header className="appbar">
         <a className="brand" href="#/"><Logo size={28} /><span>DropLink</span></a>
         <span className="spacer" />
+        {installEvent && !standalone && <button className="nm-btn sm" onClick={() => installEvent.prompt()}><DownloadIcon width={18} height={18} /> <span className="hide-narrow">Install app</span></button>}
         <button className="nm-btn sm" onClick={() => setConnect(true)}><QrIcon width={18} height={18} /> <span className="hide-narrow">Connect a device</span></button>
         <span className="secure small"><ShieldIcon width={16} height={16} /> <span className="hide-narrow">Connected securely</span></span>
       </header>
@@ -644,8 +671,9 @@ function Shell() {
           {nav('#/settings', 'Settings', <SettingsIcon />, page === 'settings')}
         </nav>
         <main className="content">
+          {down && <Reconnect onRetry={loadShares} />}
           {page === 'speed' ? <SpeedTest />
-            : page === 'settings' ? <Settings theme={theme} />
+            : page === 'settings' ? <Settings theme={theme} install={installEvent} standalone={standalone} />
             : page === 'favorites' ? <><h2 className="page-title">Favorites</h2><RefList items={fav.list} shares={shares} empty="Tap the star on any file or folder to keep it here." /></>
             : page === 'recent' ? <><h2 className="page-title">Recent</h2><RefList items={recents.list} shares={shares} empty="Files you open will appear here." onClear={recents.clear} /></>
             : current ? <Browser key={current.id} route={route} shareName={current.name} fav={fav} recents={recents} />

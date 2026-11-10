@@ -103,6 +103,8 @@ data class HostUi(
     val stats: StatsSnapshot,
     val testResults: List<String>,
     val batteryRestricted: Boolean,
+    val batterySaver: Boolean,
+    val onOpenBatterySaver: () -> Unit,
     val onStart: () -> Unit,
     val onStop: () -> Unit,
     val onRefresh: () -> Unit,
@@ -170,6 +172,16 @@ private fun ScreenHost(
         Destination.Home -> ScreenScaffold("Home", "Your phone. Your server. Your network.", wide, showLogo = true) {
             if (host.diagnostics.isNotBlank()) DiagnosticsCard(host.diagnostics, host.onClearDiagnostics)
             pairing.requests.forEach { PairingRequestCard(it, pairing.onApprove, pairing.onDeny) }
+            if (host.isHosting && host.batterySaver) {
+                DropCard {
+                    DropText("Battery Saver is on", style = DropTheme.type.subtitle)
+                    DropText(
+                        "Android pauses background apps while Battery Saver is on, so other devices lose the connection when you leave DropLink. Turn it off while hosting.",
+                        style = DropTheme.type.body
+                    )
+                    DropButton("Open Battery Saver settings", host.onOpenBatterySaver, style = DropButtonStyle.Secondary, icon = Icons.Outlined.Settings)
+                }
+            }
             DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh, host.error, host.stats, host.testResults, host.onTest, host.onOpenLocal, !host.useHttp)
             DropSectionTitle("Network workspace")
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
@@ -334,7 +346,7 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
             style = type.body
         )
         DropText(
-            "Also turn off Data Saver and Battery Saver while hosting, since both can limit background apps.",
+            "Keep Battery Saver and Data Saver off while hosting. Battery Saver was the cause of hosting stopping in the background on a TECNO phone.",
             style = type.caption, color = secondary
         )
         DropButton("Open battery settings", host.onOpenBatterySettings, style = DropButtonStyle.Secondary, icon = Icons.Outlined.Settings)
