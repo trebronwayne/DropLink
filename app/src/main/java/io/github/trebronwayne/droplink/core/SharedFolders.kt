@@ -24,7 +24,7 @@ object SharedFolders {
     private const val PREFS = "droplink_shares"
     private const val KEY = "tree_uris"
 
-    private fun idFor(uri: Uri): String =
+    fun idFor(uri: Uri): String =
         MessageDigest.getInstance("SHA-256").digest(uri.toString().toByteArray())
             .take(6).joinToString("") { "%02x".format(it) }
 
@@ -71,8 +71,9 @@ object SharedFolders {
     private fun segmentsOf(path: String): List<String> = path.split('/').filter { it.isNotEmpty() }
     private fun key(shareId: String, segments: List<String>) = shareId + "|" + segments.joinToString("/")
 
+    // The hosted-page folder is resolved through the same fast lookup, but it is never listed as a shared folder.
     private fun treeUri(context: Context, shareId: String): Uri? =
-        stored(context).map { Uri.parse(it) }.firstOrNull { idFor(it) == shareId }
+        (stored(context).map { Uri.parse(it) } + listOfNotNull(SiteHost.folderUri(context))).firstOrNull { idFor(it) == shareId }
 
     fun root(context: Context, id: String): DocumentFile? = treeUri(context, id)?.let { DocumentFile.fromTreeUri(context, it) }
 

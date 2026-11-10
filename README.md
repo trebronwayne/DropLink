@@ -1,50 +1,147 @@
-# DropLink
+<p align="center">
+  <img src="branding/banner.svg" alt="DropLink: your phone, your server, your network" width="100%" />
+</p>
 
-**Your phone. Your server. Your network.**
+<p align="center">
+  <a href="https://github.com/trebronwayne/DropLink/releases"><img alt="Download" src="https://img.shields.io/badge/Download-latest%20APK-0A84FF?style=for-the-badge&logo=android&logoColor=white" /></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-2f7de1?style=for-the-badge" /></a>
+  <img alt="Platform" src="https://img.shields.io/badge/Android-8%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white" />
+  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" />
+</p>
 
-DropLink is an open-source, Wi-Fi-first platform for turning phones and computers into interconnected personal servers. Nodes can provide services such as file access, media streaming, camera streaming and (in later phases) authorized internet gateway access.
+<h3 align="center">Turn your phone into a private server. Share files, play media and host a web page for anyone on your hotspot or Wi-Fi. No cloud, no accounts, no data plan.</h3>
 
-> Status: early Android prototype. Persistent node identity and a minimal local health endpoint are implemented; discovery, pairing and federation are still future milestones.
+<p align="center">
+  <a href="#-quick-start">Quick start</a> ·
+  <a href="#-features">Features</a> ·
+  <a href="#-host-a-page">Host a page</a> ·
+  <a href="#-coming-soon">Coming soon</a> ·
+  <a href="#-support-and-feedback">Support</a> ·
+  <a href="PRIVACY.md">Privacy</a>
+</p>
 
-## Project identity
+---
 
-- Android application ID: `io.github.trebronwayne.droplink`
-- Primary language: Kotlin
-- UI: Jetpack Compose
-- Design direction: Fluent-inspired, implemented with a project-owned Compose design system
-- Proposed license: Apache-2.0
+## See it
 
-## Current scope
+<table>
+  <tr>
+    <td width="66%"><img src="docs/screenshots/browse-light.png" alt="Browsing shared folders in the web client" /></td>
+    <td width="34%"><img src="docs/screenshots/mobile-dark-player.png" alt="The mobile web client with the mini player, in dark mode" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/player-dark.png" alt="The full player in dark mode" /></td>
+    <td><img src="docs/screenshots/mobile-light.png" alt="The mobile web client in light mode" /></td>
+  </tr>
+</table>
 
-The current node-foundation milestone establishes:
-- Android application structure and Fluent-inspired Compose dashboard
-- Persistent node identity derived from a P-256 Android Keystore public key
-- User-controlled foreground hosting service with a local TCP `GET /health` endpoint on port `47831`
-- Manual signed-release workflow with automatic semantic version progression
-- Architecture, protocol, security and contribution documentation
+## ⚡ Quick start
 
-It does **not** yet implement Wi-Fi discovery, secure pairing, server federation, file sharing, CCTV or internet routing. The health endpoint is only a connectivity proof and must not be treated as a secure service API.
+1. **Install** the APK from the [Releases](https://github.com/trebronwayne/DropLink/releases) page and open DropLink.
+2. **Share a folder:** *Files → Add shared folder*. Access is read-only and limited to what you pick.
+3. **Start hosting** on the Home screen. Turn on your hotspot, or join the same Wi-Fi as the other devices.
+4. **Connect:** scan the QR code on the Home screen with the other device's camera. DropLink opens in its browser with nothing to type.
+5. **Approve** the request on your phone after checking the code matches. That's it.
 
-## Build
+> The first time, the browser shows a certificate warning. DropLink encrypts everything with its own certificate, so compare the fingerprint shown in the app, then continue.
 
-Open this folder in a recent Android Studio version with Android SDK 36 installed. Android Studio can generate the Gradle wrapper if one is not present.
+## ✨ Features
 
-The project uses Android Gradle Plugin 8.10.1, Kotlin 2.0.21, Gradle 8.11.1 and Java 17. The GitHub workflow installs Gradle directly, so a Gradle wrapper is not currently required for the automated release job. This source package has not yet been built on a physical Android device or verified by a successful Gradle build; run Gradle sync/build in Android Studio and report any errors before treating it as release-ready. If you have a local Gradle installation, you can generate a wrapper with `gradle wrapper --gradle-version 8.11.1`.
+| | |
+|---|---|
+| 📁 **Share folders** | Pick folders with Android's own picker. Read-only, nothing is copied or uploaded. |
+| ⚡ **Fast browsing** | Folders open from a single storage query, are cached, and thumbnails load instead of full photos. |
+| 🎵 **Music and video that keep playing** | A persistent player with queue, shuffle, repeat, speed and lock-screen controls. Keep browsing while it plays. |
+| 🔐 **Approval-based access** | New devices must be approved on the phone and can be revoked any time. Everything runs over HTTPS. |
+| 📱 **Connect by QR** | One code opens DropLink. An optional small code lets a phone join your hotspot without typing the password. |
+| 🌐 **Host a page** | Publish a website from a folder, with sign-in accounts and forms that send information to your phone. |
+| 🧩 **Installable web client** | Soft, modern neumorphic design with light and dark themes, favourites, recents and an offline-friendly shell. |
+| 🔄 **Reconnects by itself** | If the address changes, scan the new QR code from the "Can't reach the phone" screen. |
+| 🛡️ **Built to keep hosting** | Foreground service, wake and Wi-Fi locks, a self-checking watchdog, and a warning when Battery Saver would pause it. |
+| 🚀 **Speed test** | Measure the link between a device and the phone. |
 
-## Documentation
+## 🌐 Host a page
 
-Start with:
-1. [`docs/PRODUCT_VISION.md`](docs/PRODUCT_VISION.md)
-2. [`docs/SYSTEM_ARCHITECTURE.md`](docs/SYSTEM_ARCHITECTURE.md)
-3. [`docs/NETWORK_PROTOCOL.md`](docs/NETWORK_PROTOCOL.md)
-4. [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md)
-5. [`docs/SERVICE_API.md`](docs/SERVICE_API.md)
-6. [`docs/ANDROID_IMPLEMENTATION.md`](docs/ANDROID_IMPLEMENTATION.md)
-7. [`docs/UI_DESIGN_SYSTEM.md`](docs/UI_DESIGN_SYSTEM.md)
-8. [`docs/ROADMAP.md`](docs/ROADMAP.md)
+Publish a real website straight from your phone, perfect for a class, a shop, an event or a family notice board.
 
-## License
+- Choose a folder with an `index.html`, switch **Publish** on, share the address.
+- Create **sign-in accounts**; anything in a folder named `private/` is shown only to signed-in visitors.
+- Pages can **send information back to you** (contact forms, check-ins, orders) with a single `fetch` call.
+- Choose whether **anyone on the network** can open it or only devices you approved.
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
+```js
+await fetch('/site-api/submit/contact', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ name, message })
+})
+```
 
+Read the [Host a page guide](docs/HOST_PAGE.md) and try the ready-made [sample site](samples/login-site).
 
+## 🔭 Coming soon
+
+| | |
+|---|---|
+| 📺 **Live streaming** | Watch a video file as the phone plays it. |
+| 📹 **Live camera** | Use the phone as a CCTV camera. |
+| 🖥️ **Remote presentation** | Control slides on a big screen from the phone (PDF and image slides first; native PowerPoint rendering is a bigger project and comes later). |
+| 📤 **Send and receive files** | Send to one, two or everyone connected. Recipients accept, or turn on auto-accept. People add their name on first visit. |
+| 📥 **Uploads to the phone** | Visitors upload only after you grant it, once or always. |
+| 👥 **People** | See who is connected and send them messages, files and attachments. |
+| 💬 **Feedback** | Visitors send feedback to you, and you reply. |
+| 📋 **Richer device list** | More detail about every connected device. |
+| 🐦 **Aubree, the DropLink mascot** | A cute animated companion with states for waiting and loading, success, celebration, failure and empty screens. |
+
+Follow progress in the [roadmap](docs/ROADMAP.md).
+
+## 🔒 Privacy and security
+
+- **No cloud.** No accounts with us, no ads, no analytics, no trackers. Your files never leave your devices.
+- **Encrypted** with HTTPS between devices, **approval required** for every new device, **read-only** shared folders.
+- Logs and crash reports stay on your phone unless you choose to email them.
+
+Read the [Privacy Policy](PRIVACY.md) and the [security model](docs/SECURITY_MODEL.md).
+
+## 🧭 How it works
+
+```mermaid
+flowchart LR
+    A["📱 Your phone<br/>DropLink server"] <-->|"Hotspot or Wi-Fi<br/>HTTPS"| B["💻 Laptop browser"]
+    A <-->|HTTPS| C["📱 Friend's phone"]
+    A <-->|HTTPS| D["📺 Smart TV browser"]
+    A -. "read-only" .-> E[("📁 Folders you chose")]
+    A -. "optional" .-> F["🌐 Your hosted page"]
+```
+
+## 🛠️ Build it yourself
+
+You need Android Studio with Android SDK 36, JDK 17, and Node.js 20+ for the web client.
+
+```bash
+# 1. Web client (outputs into the app's assets)
+cd web && npm install && npm run build && cd ..
+
+# 2. Android app
+gradle assembleDebug           # Gradle 8.11+, or open the folder in Android Studio and press Run
+```
+
+| Part | Technology |
+|---|---|
+| App and server | Kotlin, Jetpack Compose, Ktor (CIO), ZXing |
+| Web client | React, TypeScript, a hand-made neumorphic design system |
+| Releases | GitHub Actions (signed, semantic versioning) |
+
+More in [`docs/`](docs): [architecture](docs/SYSTEM_ARCHITECTURE.md), [network protocol](docs/NETWORK_PROTOCOL.md), [service API](docs/SERVICE_API.md), [web client](docs/WEB_CLIENT.md), [performance](docs/PERFORMANCE.md) and [troubleshooting](docs/TROUBLESHOOTING.md).
+
+## 💬 Support and feedback
+
+- 🐞 **Found a bug or have an idea?** [Open an issue on GitHub](https://github.com/trebronwayne/DropLink/issues).
+- ✉️ **Feedback, or something went wrong?** Email **[trebronwayne@gmail.com](mailto:trebronwayne@gmail.com)**. In the app, *Settings → Hosting activity → Email log* (or the *Problem report* card) prepares the message for you. Nothing is sent unless you press send.
+- 🤝 **Want to help?** Pull requests are welcome. Please open an issue first for larger changes.
+
+## 📄 License
+
+Licensed under the [Apache License 2.0](LICENSE). See the [Privacy Policy](PRIVACY.md) for how information is handled.
+
+<p align="center"><sub>Made for people who want to share on their own terms.</sub></p>

@@ -82,7 +82,7 @@ function Pair({ onDone }: { onDone: () => void }) {
             <p className="muted waiting"><span className="pulse" /> Waiting for approval…</p>
           </div>
         )}
-        <p className="secure"><ShieldIcon width={16} height={16} /> Encrypted, local connection</p>
+        <p className="secure"><ShieldIcon width={16} height={16} /> Encrypted, local connection · <a href="/privacy.html">Privacy</a></p>
       </div>
     </main>
   )
@@ -483,6 +483,7 @@ function Settings({ theme, install, standalone }: { theme: ReturnType<typeof use
         {standalone ? <p className="muted">DropLink is running as an installed app.</p>
           : install ? <button className="nm-btn primary" onClick={() => install.prompt()}><DownloadIcon /> Install DropLink</button>
           : <p className="muted small">In Chrome open the ⋮ menu and choose Install app or Add to Home screen. DropLink uses a self-signed certificate, so some browsers only create a shortcut instead of a full app; a shortcut still opens it in one tap.</p>}
+        <p className="muted small"><a href="/privacy.html">Privacy Policy</a> · <a href="https://github.com/trebronwayne/DropLink/issues" target="_blank" rel="noreferrer">Report an issue</a> · <a href="mailto:trebronwayne@gmail.com">Send feedback</a></p>
         <p className="muted small">Keyboard: Space play/pause · J / L back/forward 10 s · N / P next/previous track.</p>
       </div>
     </>

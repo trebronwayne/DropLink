@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.Refresh
@@ -130,7 +132,8 @@ data class NetworkUi(val nodes: List<DiscoveredNode>, val onOpen: (DiscoveredNod
 data class FilesUi(
     val folders: List<SharedFolder>,
     val onAdd: () -> Unit,
-    val onRemove: (SharedFolder) -> Unit
+    val onRemove: (SharedFolder) -> Unit,
+    val site: SiteUi
 )
 
 @Composable
@@ -212,13 +215,18 @@ private fun DropLogo(modifier: Modifier = Modifier) {
 @Composable
 private fun DiagnosticsCard(text: String, onClear: () -> Unit) {
     val type = DropTheme.type
+    val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     DropCard {
         DropText("Problem report", style = type.subtitle)
-        DropText("The app recorded a problem. Copy the report and send it so it can be fixed.", style = type.caption, color = DropTheme.colors.textSecondary)
+        DropText(
+            "Something went wrong. Please email this report to ${Support.EMAIL} so it can be fixed. Nothing is sent unless you press send in your mail app.",
+            style = type.caption, color = DropTheme.colors.textSecondary
+        )
         DropText(text.takeLast(1200), style = type.caption, fontFamily = FontFamily.Monospace)
         Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
-            DropButton("Copy report", { clipboard.setText(AnnotatedString(text)) }, Modifier.weight(1f), DropButtonStyle.Primary, Icons.Outlined.ContentCopy)
+            DropButton("Email report", { Support.report(context, "DropLink problem report", text) }, Modifier.weight(1f), DropButtonStyle.Primary, Icons.Outlined.Email)
+            DropButton("Copy", { clipboard.setText(AnnotatedString(text)) }, style = DropButtonStyle.Subtle, icon = Icons.Outlined.ContentCopy)
             DropButton("Clear", onClear, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Delete)
         }
     }
@@ -295,11 +303,13 @@ private fun FilesContent(files: FilesUi) {
             }
         }
     }
+    SiteCard(files.site)
 }
 
 @Composable
 private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     val type = DropTheme.type
     val secondary = DropTheme.colors.textSecondary
     DropCard {
@@ -319,7 +329,7 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
         val clipboardForEvents = LocalClipboardManager.current
         DropText("Hosting activity", style = type.subtitle)
         DropText(
-            "Shows when the app went to the background, the screen turned off, or Android paused or stopped the server. Copy it and send it if hosting stops unexpectedly.",
+            "A record of what the app and Android did while hosting: going to the background, screen off, pauses and restarts. If hosting stops unexpectedly, email it to ${Support.EMAIL}.",
             style = type.caption, color = secondary
         )
         DropText(
@@ -328,9 +338,10 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
             DropButton(
-                "Copy log", { clipboardForEvents.setText(AnnotatedString(host.events)) },
-                Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.ContentCopy, enabled = host.events.isNotBlank()
+                "Email log", { Support.report(context, "DropLink hosting log", host.events) },
+                Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.Email, enabled = host.events.isNotBlank()
             )
+            DropButton("Copy", { clipboardForEvents.setText(AnnotatedString(host.events)) }, style = DropButtonStyle.Subtle, icon = Icons.Outlined.ContentCopy, enabled = host.events.isNotBlank())
             DropButton("Refresh", host.onRefreshEvents, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Refresh)
             DropButton("Clear", host.onClearEvents, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Delete)
         }
@@ -346,7 +357,7 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
             style = type.body
         )
         DropText(
-            "Keep Battery Saver and Data Saver off while hosting. Battery Saver was the cause of hosting stopping in the background on a TECNO phone.",
+            "Keep Battery Saver and Data Saver off while hosting. They make Android pause background apps, so other devices lose the connection when you leave DropLink.",
             style = type.caption, color = secondary
         )
         DropButton("Open battery settings", host.onOpenBatterySettings, style = DropButtonStyle.Secondary, icon = Icons.Outlined.Settings)
@@ -383,9 +394,27 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
         DropText("Compare this with the certificate details your browser shows before trusting this phone.", style = type.caption, color = secondary)
     }
     DropCard {
+        DropText("Coming soon", style = type.subtitle)
+        listOf(
+            "Live streaming: watch a video file as the phone plays it",
+            "Live camera: use the phone as a CCTV camera",
+            "Remote presentation: control slides on a big screen from the phone",
+            "Send and receive files: send to one, two or everyone connected; people accept, or turn on auto-accept",
+            "People: see who is connected, send messages, files and attachments",
+            "Uploads to the phone: approve once or always",
+            "Feedback: visitors write to you and you reply",
+            "A richer device list with more details about each device",
+            "Aubree, the DropLink mascot: friendly animations for waiting, success, celebration, failure and empty screens"
+        ).forEach { DropText("•  $it", style = type.caption, color = secondary) }
+    }
+    DropCard {
         DropText("About", style = type.subtitle)
         DropText("DropLink ${BuildConfig.VERSION_NAME}", style = type.body)
-        DropText("Node Foundation build", style = type.caption, color = secondary)
+        DropText("Your phone. Your server. Your network.", style = type.caption, color = secondary)
+        DropButton("Send feedback", { Support.email(context, "DropLink feedback", "") }, Modifier.fillMaxWidth(), DropButtonStyle.Secondary, Icons.Outlined.Email)
+        DropButton("Report an issue on GitHub", { Support.openUrl(context, Support.ISSUES) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)
+        DropButton("Privacy Policy", { Support.openUrl(context, Support.PRIVACY) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)
+        DropButton("Source code and license", { Support.openUrl(context, Support.REPO) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)
     }
 }
 

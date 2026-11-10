@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Host a page
+- Publish a website from a folder at `/site/`, with sign-in accounts (salted PBKDF2 hashes), a `private/` area for signed-in visitors, and `/site-api/` endpoints so pages can sign people in and send information to the phone. Optional "approved devices only" mode.
+- New "Host a page" card under Files; guide in `docs/HOST_PAGE.md`; working example in `samples/login-site/`.
+
+### Production
+- Problem report and hosting log now say to email trebronwayne@gmail.com, with an "Email report/log" button (nothing is sent unless the user presses send); developer-directed wording removed, crash and event logs unchanged.
+- About card: send feedback, report an issue on GitHub, Privacy Policy, source. "Coming soon" card lists upcoming features.
+- Added `PRIVACY.md` and an offline copy at `/privacy.html`; rewritten README with banner, screenshots and roadmap.
+
 ### Speed
 - Folders are read with one Storage Access Framework query (was about five queries per file) and cached briefly; listings open near-instantly.
 - Web client files are read once, gzip-compressed, served from memory with ETag, and cached forever by the browser (hashed filenames).

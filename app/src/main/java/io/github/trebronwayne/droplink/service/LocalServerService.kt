@@ -171,6 +171,7 @@ class LocalServerService : Service() {
         if (wasHosting && !keepState) EventLog.add("Hosting stopped")
         ServerStats.stop()
         releaseLocks()
+        io.github.trebronwayne.droplink.core.SiteHost.endAllSessions()
         Pairing.onRequest = null
         Pairing.clearRequests()
         try { Discovery.stopAdvertising() } catch (_: Throwable) { }

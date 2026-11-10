@@ -33,6 +33,8 @@ import io.github.trebronwayne.droplink.core.SelfTest
 import io.github.trebronwayne.droplink.core.ServerStats
 import io.github.trebronwayne.droplink.core.SharedFolder
 import io.github.trebronwayne.droplink.core.SharedFolders
+import io.github.trebronwayne.droplink.core.SiteHost
+import io.github.trebronwayne.droplink.ui.SiteUi
 import io.github.trebronwayne.droplink.core.TlsIdentity
 import io.github.trebronwayne.droplink.service.LocalServerService
 import io.github.trebronwayne.droplink.ui.DropLinkApp
@@ -52,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private var folders by mutableStateOf(emptyList<SharedFolder>())
     private var useHttp by mutableStateOf(false)
     private var batterySaver by mutableStateOf(false)
+    private var siteVersion by mutableStateOf(0)
     private var diagnostics by mutableStateOf("")
     private var events by mutableStateOf("")
     private var testResults by mutableStateOf(emptyList<String>())
@@ -70,6 +73,15 @@ class MainActivity : ComponentActivity() {
                     CrashLog.record("Could not share that folder", e)
                 }
                 folders = SharedFolders.list(this)
+                diagnostics = CrashLog.read(this)
+            }
+        }
+
+    private val pickSiteFolder =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                try { SiteHost.setFolder(this, uri) } catch (e: Throwable) { CrashLog.record("Could not use that folder for the page", e) }
+                siteVersion++
                 diagnostics = CrashLog.read(this)
             }
         }
@@ -131,14 +143,30 @@ class MainActivity : ComponentActivity() {
                     onOpenLocal = ::openOnThisPhone,
                     onOpenBatterySettings = ::openBatterySettings
                 )
-                val files = remember(folders) {
+                val files = remember(folders, siteVersion, addresses) {
                     FilesUi(
                         folders = folders,
                         onAdd = { pickFolder.launch(null) },
                         onRemove = { folder ->
                             SharedFolders.remove(this@MainActivity, folder)
                             folders = SharedFolders.list(this@MainActivity)
-                        }
+                        },
+                        site = SiteUi(
+                            folderName = SiteHost.folderName(this@MainActivity),
+                            published = SiteHost.enabled(this@MainActivity),
+                            openToAnyone = SiteHost.openToAnyone(this@MainActivity),
+                            users = SiteHost.users(this@MainActivity),
+                            submissionCount = SiteHost.submissionCount(this@MainActivity),
+                            submissionsJson = { SiteHost.submissionsJson(this@MainActivity) },
+                            urls = addresses.map { it.url(LocalServerService.PORT, !useHttp) + "site/" },
+                            onPickFolder = { pickSiteFolder.launch(null) },
+                            onClearFolder = { SiteHost.clearFolder(this@MainActivity); siteVersion++ },
+                            onPublishedChange = { SiteHost.setEnabled(this@MainActivity, it); siteVersion++ },
+                            onOpenToAnyoneChange = { SiteHost.setOpenToAnyone(this@MainActivity, it); siteVersion++ },
+                            onAddUser = { n, p -> SiteHost.addUser(this@MainActivity, n, p).also { siteVersion++ } },
+                            onRemoveUser = { SiteHost.removeUser(this@MainActivity, it); siteVersion++ },
+                            onClearSubmissions = { SiteHost.clearSubmissions(this@MainActivity); siteVersion++ }
+                        )
                     )
                 }
                 val pairing = PairingUi(

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Welcome</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main>
+  <section class="card" id="login-card">
+    <h1>Welcome</h1>
+    <p id="status">Sign in to see the members area.</p>
+    <form id="login">
+      <input name="username" placeholder="Username" autocomplete="username" required />
+      <input name="password" type="password" placeholder="Password" autocomplete="current-password" required />
+      <button class="primary">Sign in</button>
+    </form>
+    <p id="login-msg" class="msg" role="status"></p>
+    <div id="signed-in" hidden>
+      <a href="private/members.html"><button class="primary" type="button">Open members area</button></a>
+      <button id="logout" type="button">Sign out</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Contact the host</h2>
+    <form id="contact">
+      <input name="name" placeholder="Your name" required />
+      <textarea name="message" rows="3" placeholder="Message" required></textarea>
+      <button>Send</button>
+    </form>
+    <p id="contact-msg" class="msg" role="status"></p>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id)
+async function post(url, data) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+  return { ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }
+}
+async function refresh() {
+  const me = await (await fetch('/site-api/me')).json().catch(() => ({ user: null }))
+  $('status').textContent = me.user ? `Signed in as ${me.user}.` : 'Sign in to see the members area.'
+  $('login').hidden = !!me.user
+  $('signed-in').hidden = !me.user
+}
+$('login').addEventListener('submit', async e => {
+  e.preventDefault()
+  const f = new FormData(e.target)
+  const r = await post('/site-api/login', { username: f.get('username'), password: f.get('password') })
+  $('login-msg').className = 'msg ' + (r.ok ? 'ok' : 'err')
+  $('login-msg').textContent = r.ok ? 'Signed in.' : r.status === 429 ? 'Too many attempts. Wait a minute.' : 'Wrong name or password.'
+  if (r.ok) { e.target.reset(); refresh() }
+})
+$('logout').addEventListener('click', async () => { await post('/site-api/logout', {}); refresh() })
+$('contact').addEventListener('submit', async e => {
+  e.preventDefault()
+  const f = new FormData(e.target)
+  const r = await post('/site-api/submit/contact', { name: f.get('name'), message: f.get('message') })
+  $('contact-msg').className = 'msg ' + (r.ok ? 'ok' : 'err')
+  $('contact-msg').textContent = r.ok ? 'Thank you, your message was sent.' : 'Could not send it. Try again later.'
+  if (r.ok) e.target.reset()
+})
+refresh()
+</script>
+</body>
+</html>

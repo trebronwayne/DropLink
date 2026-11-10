@@ -1,5 +1,17 @@
 # Roadmap
 
+## Coming soon
+- [x] **Host a page**: publish a website from a folder, with sign-in accounts and forms that send information to the phone.
+- [ ] **Live streaming**: watch a video file as the phone plays it.
+- [ ] **Live camera**: use the phone as a CCTV camera.
+- [ ] **Remote presentation**: control slides on a big screen from the phone. Slides will be shown from PDF or image exports; native PowerPoint rendering is a much bigger job and is planned later.
+- [ ] **Send and receive files**: the operator sends to one, two or all connected users; recipients accept each file or turn on auto-accept. Users add their name on first visit.
+- [ ] **Uploads to the phone**: visitors upload only after the operator grants it, once or always.
+- [ ] **People**: see who is connected, and send them messages, files and attachments.
+- [ ] **Feedback**: visitors send feedback to the operator, who can reply.
+- [ ] **Richer device list**: more detail about each connected device.
+- [ ] **Aubree, the DropLink mascot**: friendly animations for waiting/loading, success, celebration, failure and empty screens.
+
 ## Phase 0 — Project foundation
 - [x] Establish product vision and package identity.
 - [x] Add initial Android Compose scaffold.
