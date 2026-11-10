@@ -11,7 +11,9 @@
 
 ### Background hosting
 - Wi-Fi high-performance lock added (the low-latency lock alone only works while the app is on screen).
-- Watchdog now sends a real HTTP request to the engine every 10 s instead of only opening a socket.
+- Watchdog sends a real HTTP request to the engine every 10 s over a raw socket (Android blocks http:// URLs even to localhost, which made an earlier version restart the server in a loop). It needs 3 misses in a row and never counts a frozen period as a failure.
+- Internal restarts no longer flip the visible hosting state; the TLS front end no longer crashes while stopping.
+- When Android freezes the app, the log now records why (process importance, battery exemption, standby bucket).
 - Inexact keep-alive alarm that can fire in Doze; server threads run at foreground priority.
 - DropLink asks once, with Android's one-tap dialog, to be exempt from battery optimization.
 

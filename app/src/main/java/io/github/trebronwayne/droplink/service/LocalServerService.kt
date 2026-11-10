@@ -140,6 +140,7 @@ class LocalServerService : Service() {
                 registerScreenReceiver()
                 startWatchdog()
                 scheduleKeepAlive()
+                EventLog.add("Standing with Android: ${standing()}")
                 EventLog.add("Hosting started on port $PORT (${if (useHttp) "HTTP testing mode" else "HTTPS"})")
                 try {
                     Discovery.advertise(
@@ -159,14 +160,15 @@ class LocalServerService : Service() {
         }.apply { name = "DropLink-ServerStart" }.start()
     }
 
-    private fun stopHosting() {
+    private fun stopHosting(keepState: Boolean = false) {
         val wasHosting = _hostingState.value
-        _hostingState.value = false
+        // During an internal restart the screen keeps showing "hosting", so the buttons do not flicker.
+        if (!keepState) _hostingState.value = false
         watchdog?.interrupt()
         watchdog = null
         cancelKeepAlive()
         unregisterScreenReceiver()
-        if (wasHosting) EventLog.add("Hosting stopped")
+        if (wasHosting && !keepState) EventLog.add("Hosting stopped")
         ServerStats.stop()
         releaseLocks()
         Pairing.onRequest = null
@@ -269,14 +271,16 @@ class LocalServerService : Service() {
                     val gap = now - lastBeat
                     lastBeat = now
                     if (gap > WATCHDOG_INTERVAL_MS * 3) {
-                        EventLog.add("DropLink was frozen or throttled by Android for about ${gap / 1000} s (expected ${WATCHDOG_INTERVAL_MS / 1000} s)")
+                        EventLog.add("DropLink was frozen or throttled by Android for about ${gap / 1000} s (expected ${WATCHDOG_INTERVAL_MS / 1000} s). ${standing()}")
+                        failures = 0
+                        continue // the server was frozen too; judge it on the next beat, not this one
                     }
                     if (loopbackAnswers()) {
                         failures = 0
                     } else {
                         failures += 1
                         EventLog.add("Server did not answer its own check ($failures)")
-                        if (failures >= 2) {
+                        if (failures >= 3) {
                             EventLog.add("Restarting the server")
                             restartServer()
                             return@Thread
@@ -293,19 +297,42 @@ class LocalServerService : Service() {
         thread.start()
     }
 
-    /** A real request to the engine, not just an open socket: a frozen server still accepts TCP connections. */
+    /**
+     * Sends a real HTTP request to the engine and checks for "200", because a frozen server still accepts TCP connections.
+     * A raw socket is used on purpose: Android refuses plain http:// URLs, even to 127.0.0.1, which made every check fail.
+     */
     private fun loopbackAnswers(): Boolean {
         return try {
-            val c = URL("http://127.0.0.1:$activeBackendPort/health").openConnection() as HttpURLConnection
-            c.connectTimeout = 2_000
-            c.readTimeout = 3_000
-            c.useCaches = false
-            val ok = c.responseCode == 200
-            c.disconnect()
-            ok
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", activeBackendPort), 2_000)
+                socket.soTimeout = 4_000
+                socket.getOutputStream().apply {
+                    write("GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".toByteArray())
+                    flush()
+                }
+                val line = socket.getInputStream().bufferedReader().readLine().orEmpty()
+                line.startsWith("HTTP/1.") && line.contains(" 200")
+            }
         } catch (_: Exception) {
             false
         }
+    }
+
+    /** What Android currently thinks of this app; written to the log whenever it gets frozen, so the cause is visible. */
+    private fun standing(): String {
+        val parts = ArrayList<String>()
+        try {
+            val info = android.app.ActivityManager.RunningAppProcessInfo()
+            android.app.ActivityManager.getMyMemoryState(info)
+            parts += "process importance ${info.importance} (125 = foreground service, 400+ = cached)"
+        } catch (_: Throwable) { }
+        try { parts += "battery exemption ${getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)}" } catch (_: Throwable) { }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try { parts += "background restricted ${getSystemService(android.app.ActivityManager::class.java).isBackgroundRestricted}" } catch (_: Throwable) { }
+            try { parts += "standby bucket ${getSystemService(android.app.usage.UsageStatsManager::class.java).appStandbyBucket} (10 active, 20 working, 30 frequent, 40 rare, 50 restricted)" } catch (_: Throwable) { }
+        }
+        parts += "Android ${Build.VERSION.SDK_INT}, ${Build.MANUFACTURER}"
+        return parts.joinToString(", ")
     }
 
     /**
@@ -334,7 +361,7 @@ class LocalServerService : Service() {
     }
 
     private fun restartServer() {
-        stopHosting()
+        stopHosting(keepState = true)
         Thread.interrupted() // stopHosting interrupts this thread; clear that so the pause below works
         try { Thread.sleep(1_500) } catch (_: InterruptedException) { }
         startHosting()

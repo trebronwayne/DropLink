@@ -110,8 +110,8 @@ class TlsFrontend(
             openSockets.add(backend)
             pool.execute { relay(client, backend) }
             relay(backend, client)
-        } catch (_: IOException) {
-            // Failed handshake (for example a browser rejecting the certificate) or a dropped connection.
+        } catch (_: Exception) {
+            // Failed handshake (for example a browser rejecting the certificate), a dropped connection, or the server stopping.
         } finally {
             closeQuietly(client)
             closeQuietly(upstream)
