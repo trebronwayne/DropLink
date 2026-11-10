@@ -20,6 +20,8 @@
 - The host screen shows a QR code per address, plus Copy and Share buttons. Scanning opens DropLink with nothing to type.
 - The web client has a "Connect a device" button that shows the same QR codes (`/api/addresses`, `/api/qr`, sign-in required).
 
+- Optional, collapsed Wi-Fi join code under the main QR ("Device not on this hotspot yet?"); name and password are entered once and kept only on the phone.
+
 ### Web client
 - Rebuilt with a soft neumorphic look (light/dark/system, five accent colors).
 - Persistent player: music and video keep playing while you browse; queue, shuffle, repeat, speed, Media Session lock-screen controls, resume after reload, auto-recovery after a dropped connection.

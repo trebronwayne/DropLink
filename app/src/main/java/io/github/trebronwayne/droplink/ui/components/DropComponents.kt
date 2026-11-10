@@ -2,6 +2,15 @@ package io.github.trebronwayne.droplink.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import io.github.trebronwayne.droplink.core.HotspotDetails
+import io.github.trebronwayne.droplink.core.HotspotInfo
+import io.github.trebronwayne.droplink.core.NetKind
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
@@ -239,7 +248,7 @@ fun DropDeviceCard(
                 if (addresses.isEmpty()) {
                     DropText("No network address yet. Connect to Wi-Fi or turn on your hotspot, then tap Refresh.", style = type.body)
                 } else {
-                    DropText("Scan the code with the other device's camera. It opens DropLink with nothing to type.", style = type.caption, color = secondary)
+                    DropText("Scan with the camera to open DropLink. Nothing to type.", style = type.caption, color = secondary)
                     addresses.forEach { a ->
                         val url = a.url(port, https)
                         Column(Modifier.fillMaxWidth().padding(top = DropSpacing.s), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
@@ -250,6 +259,7 @@ fun DropDeviceCard(
                     }
                 }
             }
+            if (addresses.any { it.kind == NetKind.Hotspot }) HotspotQrSection()
             Column(verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
                 DropText("Certificate fingerprint", style = type.caption, color = secondary)
                 DropText(fingerprint.take(23) + "…", style = type.bodyStrong, fontFamily = FontFamily.Monospace)
@@ -304,13 +314,76 @@ private fun formatBytes(bytes: Long): String =
 
 /** A QR code drawn natively; always black on white with a quiet zone, so any phone camera can read it. */
 @Composable
-fun QrImage(text: String, modifier: Modifier = Modifier.size(190.dp)) {
+fun QrImage(text: String, modifier: Modifier = Modifier.size(176.dp)) {
     val grid = remember(text) { try { Qr.modules(text) } catch (_: Throwable) { null } } ?: return
     Canvas(modifier.background(Color.White, RoundedCornerShape(14.dp)).padding(12.dp)) {
         val n = grid.size
         val cell = size.minDimension / n
         for (y in 0 until n) for (x in 0 until n) {
             if (grid[y][x]) drawRect(Color.Black, Offset(x * cell, y * cell), Size(cell + 0.6f, cell + 0.6f))
+        }
+    }
+}
+
+
+/**
+ * Optional and collapsed by default: most devices are already on the network. For one that is not, a small Wi-Fi QR
+ * makes the camera offer a "Join network" suggestion, so the password never has to be typed.
+ */
+@Composable
+private fun HotspotQrSection() {
+    val context = LocalContext.current
+    val type = DropTheme.type
+    val secondary = DropTheme.colors.textSecondary
+    var saved by remember { mutableStateOf(HotspotInfo.load(context)) }
+    var expanded by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
+        DropButton(
+            if (expanded) "Hide Wi-Fi join code" else "Device not on this hotspot yet?",
+            { expanded = !expanded }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle
+        )
+        if (expanded) {
+            val d = saved
+            if (d == null || editing) {
+                var ssid by remember { mutableStateOf(d?.ssid ?: "") }
+                var pass by remember { mutableStateOf(d?.password ?: "") }
+                var open by remember { mutableStateOf(d?.open ?: false) }
+                DropText(
+                    "Enter your hotspot name and password once. Android does not let apps read them, so they are kept only on this phone.",
+                    style = type.caption, color = secondary
+                )
+                OutlinedTextField(ssid, { ssid = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Hotspot name") })
+                if (!open) {
+                    OutlinedTextField(
+                        pass, { pass = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Hotspot password") },
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+                    Switch(checked = open, onCheckedChange = { open = it })
+                    DropText("No password", style = type.body)
+                }
+                DropButton(
+                    "Save", {
+                        val details = HotspotDetails(ssid.trim(), if (open) "" else pass, open)
+                        HotspotInfo.save(context, details)
+                        saved = details
+                        editing = false
+                    },
+                    Modifier.fillMaxWidth(), DropButtonStyle.Secondary,
+                    enabled = ssid.isNotBlank() && (open || pass.length >= 8)
+                )
+            } else {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
+                    QrImage(HotspotInfo.payload(d), Modifier.size(124.dp))
+                    DropText("${d.ssid} · scan, then tap Join", style = type.caption, color = secondary)
+                    Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+                        DropButton("Edit details", { editing = true }, Modifier.weight(1f), DropButtonStyle.Subtle)
+                        DropButton("Forget", { HotspotInfo.clear(context); saved = null }, Modifier.weight(1f), DropButtonStyle.Subtle)
+                    }
+                }
+            }
         }
     }
 }
