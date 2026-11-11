@@ -2,13 +2,16 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, AuthError, qrUrl, cachedBrowse, Entry, fileUrl, LockedError, OfflineError, Share, thumbUrl } from './api'
 import {
   ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronRightIcon, ClockIcon, CloseIcon, DownloadIcon, FileTypeIcon, GaugeIcon, GridIcon,
-  HomeIcon, ListIcon, Logo, OfflineIcon, PlayIcon, PlusIcon, QrIcon, RefreshIcon, SearchIcon, SettingsIcon, ShieldIcon, SortIcon, StarFillIcon, StarIcon
+  HelpIcon, HomeIcon, KeyboardIcon, ListIcon, Logo, OfflineIcon, PlayIcon, PlusIcon, QrIcon, RefreshIcon, SearchIcon, SettingsIcon, ShieldIcon, SortIcon, StarFillIcon, StarIcon,
+  ZoomInIcon, ZoomOutIcon
 } from './icons'
 import { Reconnect } from './Reconnect'
 import { Aubree, AubreeState } from './Aubree'
 import { PlayerProvider, Track, usePlayer } from './player'
-import { ACCENTS, load, Ref, save, ThemeMode, useFavorites, useRecents, useTheme } from './prefs'
-import { formatDate, formatSize, Kind, kindOf } from './util'
+import { ACCENTS, Display, getResume, load, Ref, save, ThemeMode, useDisplay, useFavorites, useRecents, useSetting, useTheme } from './prefs'
+import { ToastProvider, useToast } from './toast'
+import { useDialog } from './a11y'
+import { formatDate, formatSize, formatTime, Kind, kindOf, stripExt } from './util'
 
 type Route = { share: string; segments: string[] }
 type SortKey = 'name' | 'size' | 'modified'
@@ -31,6 +34,37 @@ function guessDeviceName(): string {
 
 const isMedia = (k: Kind) => k === 'audio' || k === 'video'
 const matchesFilter = (k: Kind, f: Filter) => f === 'all' || (f === 'doc' ? k === 'pdf' || k === 'text' || k === 'file' || k === 'archive' : k === f)
+
+/** Thin progress line for videos and long tracks the visitor has started. */
+function Progress({ share, path }: { share: string; path: string }) {
+  const rs = getResume(share, path)
+  if (!rs || !rs.d) return null
+  return <span className="bar row-bar" aria-hidden="true"><span style={{ width: Math.min(100, Math.round((rs.t / rs.d) * 100)) + '%' }} /></span>
+}
+
+const SHORTCUTS: [string, string][] = [
+  ['Space', 'Play or pause'], ['J  /  L', 'Back or forward 10 seconds'], ['←  /  →', 'Back or forward 5 seconds'],
+  ['N  /  P', 'Next or previous track'], ['M', 'Mute or unmute'], ['↑  /  ↓', 'Volume (full player)'],
+  ['F', 'Fullscreen video'], ['S  /  R', 'Shuffle / repeat'], ['>', 'Change playback speed'],
+  ['/', 'Filter this folder'], ['?', 'Show this list'], ['Esc', 'Close a window or the full player']
+]
+
+function ShortcutsDialog({ onClose }: { onClose: () => void }) {
+  const ref = useDialog<HTMLElement>(onClose)
+  return (
+    <div className="overlay" onClick={onClose}>
+      <section ref={ref} className="viewer nm-raised shortcuts" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" tabIndex={-1}>
+        <header className="viewer-bar"><KeyboardIcon /><strong>Keyboard shortcuts</strong><span className="spacer" />
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><CloseIcon /></button></header>
+        <dl className="shortcut-list">
+          {SHORTCUTS.map(([keys, action]) => (
+            <div key={keys}><dt>{keys.split('  /  ').map((k, i) => <span key={i} className="keyset">{i > 0 && <span className="muted">or</span>}<kbd>{k}</kbd></span>)}</dt><dd>{action}</dd></div>
+          ))}
+        </dl>
+      </section>
+    </div>
+  )
+}
 
 /* ---------- Pairing ---------- */
 
@@ -110,7 +144,10 @@ function Viewer(props: { share: string; dir: string[]; files: Entry[]; index: nu
   const path = [...dir, entry.name].join('/')
   const kind = kindOf(entry)
   const [text, setText] = useState('')
+  const [zoom, setZoom] = useState(1)
   const touch = useRef<number | null>(null)
+  const dialog = useDialog<HTMLElement>(onClose)
+  useEffect(() => { setZoom(1) }, [path])
 
   useEffect(() => {
     if (kind !== 'text') return
@@ -128,18 +165,22 @@ function Viewer(props: { share: string; dir: string[]; files: Entry[]; index: nu
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      else if (e.key === 'ArrowLeft' && index > 0) onIndex(index - 1)
-      else if (e.key === 'ArrowRight' && index < files.length - 1) onIndex(index + 1)
+      const t = e.target as HTMLElement
+      if (/INPUT|SELECT|TEXTAREA/.test(t.tagName)) return
+      if (e.key === 'ArrowLeft' && index > 0 && zoom === 1) onIndex(index - 1)
+      else if (e.key === 'ArrowRight' && index < files.length - 1 && zoom === 1) onIndex(index + 1)
+      else if (e.key === '+' || e.key === '=') setZoom(z => Math.min(4, z + 0.5))
+      else if (e.key === '-') setZoom(z => Math.max(1, z - 0.5))
+      else if (e.key === '0') setZoom(1)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [index, files.length, onIndex, onClose])
+  }, [index, files.length, onIndex, zoom])
 
   const src = fileUrl(share, path)
   return (
     <div className="overlay" onClick={onClose}>
-      <section className="viewer nm-raised" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={entry.name}
+      <section ref={dialog} tabIndex={-1} className="viewer nm-raised" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={entry.name}
         onTouchStart={e => { touch.current = e.touches[0].clientX }}
         onTouchEnd={e => {
           if (touch.current === null) return
@@ -155,13 +196,18 @@ function Viewer(props: { share: string; dir: string[]; files: Entry[]; index: nu
             <span className="muted small">{formatSize(entry.size)}{entry.modified > 0 ? ` · ${formatDate(entry.modified)}` : ''} · {index + 1} of {files.length}</span>
           </div>
           <span className="spacer" />
+          {kind === 'image' && <>
+            <button className="icon-btn" onClick={() => setZoom(z => Math.max(1, z - 0.5))} disabled={zoom <= 1} aria-label="Zoom out"><ZoomOutIcon /></button>
+            <button className="icon-btn" onClick={() => setZoom(z => Math.min(4, z + 0.5))} disabled={zoom >= 4} aria-label="Zoom in"><ZoomInIcon /></button>
+          </>}
           <button className="icon-btn" onClick={() => onIndex(index - 1)} disabled={index === 0} aria-label="Previous file"><ArrowLeftIcon /></button>
           <button className="icon-btn" onClick={() => onIndex(index + 1)} disabled={index === files.length - 1} aria-label="Next file"><ArrowRightIcon /></button>
           <a className="nm-btn" href={fileUrl(share, path, true)}><DownloadIcon /> <span className="hide-narrow">Download</span></a>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><CloseIcon /></button>
         </header>
-        <div className="stage">
-          {kind === 'image' && <img key={path} src={src} alt={entry.name} />}
+        <div className={'stage' + (zoom > 1 ? ' zoomed' : '')}>
+          {kind === 'image' && <img key={path} src={src} alt={entry.name} style={zoom > 1 ? { width: `${zoom * 100}%`, maxWidth: 'none', maxHeight: 'none' } : undefined}
+            onDoubleClick={() => setZoom(z => (z > 1 ? 1 : 2))} />}
           {kind === 'pdf' && <iframe key={path} src={src} title={entry.name} />}
           {kind === 'text' && <pre>{text}{entry.size > 204800 ? '\n\n… (preview truncated)' : ''}</pre>}
           {(kind === 'archive' || kind === 'file') && (
@@ -214,7 +260,8 @@ const Item = memo(function Item({ e, share, dir, view, selecting, selected, fav,
           <span className="tile-meta muted small">{e.isDir ? 'Folder' : formatSize(e.size)}</span>
           {check}
         </button>
-        {!selecting && <button className={'icon-btn fav' + (fav ? ' on' : '')} onClick={() => onFav(e)} aria-label="Favorite">{fav ? <StarFillIcon /> : <StarIcon />}</button>}
+        {!selecting && <button className={'icon-btn fav' + (fav ? ' on' : '')} onClick={() => onFav(e)} aria-pressed={fav} aria-label={`Favorite ${e.name}`}>{fav ? <StarFillIcon /> : <StarIcon />}</button>}
+        {media && <Progress share={share} path={path} />}
       </div>
     )
   }
@@ -229,10 +276,11 @@ const Item = memo(function Item({ e, share, dir, view, selecting, selected, fav,
       {!selecting && (
         <span className="row-actions">
           {media && <button className="icon-btn" onClick={() => onQueue(e)} aria-label={`Add ${e.name} to queue`} title="Add to queue"><PlusIcon /></button>}
-          <button className={'icon-btn' + (fav ? ' on' : '')} onClick={() => onFav(e)} aria-label="Favorite">{fav ? <StarFillIcon /> : <StarIcon />}</button>
-          {!e.isDir && <a className="icon-btn" href={fileUrl(share, path, true)} aria-label={`Download ${e.name}`}><DownloadIcon /></a>}
+          <button className={'icon-btn' + (fav ? ' on' : '')} onClick={() => onFav(e)} aria-pressed={fav} aria-label={`Favorite ${e.name}`} title="Favorite">{fav ? <StarFillIcon /> : <StarIcon />}</button>
+          {!e.isDir && <a className="icon-btn" href={fileUrl(share, path, true)} aria-label={`Download ${e.name}`} title="Download"><DownloadIcon /></a>}
         </span>
       )}
+      {media && <Progress share={share} path={path} />}
     </div>
   )
 })
@@ -242,6 +290,7 @@ const CHUNK = 120
 function Browser({ route, shareName, fav, recents }: { route: Route; shareName: string; fav: ReturnType<typeof useFavorites>; recents: ReturnType<typeof useRecents> }) {
   const path = route.segments.join('/')
   const player = usePlayer()
+  const toast = useToast()
   const [entries, setEntries] = useState<Entry[] | null>(() => cachedBrowse(route.share, path) ?? null)
   const [error, setError] = useState('')
   const [offline, setOffline] = useState(false)
@@ -319,8 +368,8 @@ function Browser({ route, shareName, fav, recents }: { route: Route; shareName: 
     } else setOpenName(e.name)
   }, [route.share, route.segments, mediaFiles, toTrack, player, recents, ref])
   const onSelect = useCallback((e: Entry) => setPicked(p => { const n = new Set(p); n.has(e.name) ? n.delete(e.name) : n.add(e.name); return n }), [])
-  const onFav = useCallback((e: Entry) => fav.toggle(ref(e)), [fav, ref])
-  const onQueue = useCallback((e: Entry) => player.enqueue([toTrack(e)]), [player, toTrack])
+  const onFav = useCallback((e: Entry) => { const r = ref(e); toast.show(fav.has(r) ? `Removed “${e.name}” from favorites` : `Added “${e.name}” to favorites`); fav.toggle(r) }, [fav, ref, toast])
+  const onQueue = useCallback((e: Entry) => { player.enqueue([toTrack(e)]); toast.show(`Added “${stripExt(e.name)}” to the queue`) }, [player, toTrack, toast])
 
   const downloadPicked = async () => {
     for (const name of picked) {
@@ -350,7 +399,7 @@ function Browser({ route, shareName, fav, recents }: { route: Route; shareName: 
       <div className="command-bar nm-raised" role="toolbar" aria-label="Folder tools">
         <label className="search nm-inset">
           <SearchIcon />
-          <input type="search" placeholder="Filter this folder" value={query} onChange={e => setQuery(e.target.value)} aria-label="Filter this folder" />
+          <input type="search" placeholder="Filter this folder  ( / )" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') { if (query) setQuery(''); else e.currentTarget.blur() } }} aria-label="Filter this folder" />
         </label>
         <span className="spacer" />
         <select className="nm-select" value={sortKey} onChange={e => changeSort(e.target.value as SortKey)} aria-label="Sort by">
@@ -370,13 +419,13 @@ function Browser({ route, shareName, fav, recents }: { route: Route; shareName: 
         ))}
         <span className="spacer" />
         {hasMedia && !selecting && <button className="nm-btn sm accent" onClick={() => player.play(mediaFiles.map(toTrack), 0)}><PlayIcon width={16} height={16} /> Play all</button>}
-        <button className={'nm-btn sm' + (selecting ? ' on' : '')} onClick={() => { setSelecting(s => !s); setPicked(new Set()) }}>{selecting ? 'Cancel' : 'Select'}</button>
+        <button className={'nm-btn sm' + (selecting ? ' on' : '')} aria-pressed={selecting} onClick={() => { setSelecting(s => !s); setPicked(new Set()) }}>{selecting ? 'Cancel' : 'Select'}</button>
       </div>
 
       {selecting && (
         <div className="selbar nm-raised">
-          <strong>{picked.size} selected</strong>
-          <button className="nm-btn sm" onClick={() => setPicked(new Set(files.map(f => f.name)))}>All files</button>
+          <strong aria-live="polite">{picked.size} selected</strong>
+          <button className="nm-btn sm" onClick={() => setPicked(picked.size === files.length ? new Set() : new Set(files.map(f => f.name)))}>{picked.size === files.length && files.length > 0 ? 'Clear' : 'All files'}</button>
           <span className="spacer" />
           <button className="nm-btn sm" disabled={!picked.size} onClick={playPicked}><PlayIcon width={16} height={16} /> Play</button>
           <button className="nm-btn sm primary" disabled={!picked.size} onClick={downloadPicked}><DownloadIcon width={16} height={16} /> Download</button>
@@ -451,8 +500,34 @@ function RefList({ items, shares, empty, onClear }: { items: Ref[]; shares: Shar
               <span className="date muted ellipsis">{shares.find(s => s.id === r.share)?.name}</span>
               <span className="size muted">{r.kind === 'folder' ? '' : formatSize(r.size)}</span>
             </button>
-            {r.kind !== 'folder' && <span className="row-actions"><a className="icon-btn" href={fileUrl(r.share, r.path, true)} aria-label="Download"><DownloadIcon /></a></span>}
+            {r.kind !== 'folder' && <span className="row-actions"><a className="icon-btn" href={fileUrl(r.share, r.path, true)} aria-label={`Download ${r.name}`}><DownloadIcon /></a></span>}
+            {isMedia(r.kind) && <Progress share={r.share} path={r.path} />}
           </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function ContinueCards({ items }: { items: Ref[] }) {
+  const player = usePlayer()
+  const entries = items.filter(r => isMedia(r.kind)).map(r => ({ r, rs: getResume(r.share, r.path) })).filter(x => x.rs && x.rs.d > 0).slice(0, 3)
+  if (!entries.length) return null
+  return (
+    <>
+      <h3 className="section">Continue where you left off</h3>
+      <div className="continue-grid">
+        {entries.map(({ r, rs }) => (
+          <button key={r.share + r.path} className="continue nm-raised" aria-label={`Resume ${stripExt(r.name)} at ${formatTime(rs!.t)}`}
+            onClick={() => player.play([{ share: r.share, path: r.path, name: r.name, kind: r.kind as 'audio' | 'video', size: r.size }], 0)}>
+            <FileTypeIcon kind={r.kind} size={40} />
+            <span className="continue-text">
+              <strong className="ellipsis">{stripExt(r.name)}</strong>
+              <span className="muted small">{formatTime(rs!.t)} of {formatTime(rs!.d)} · {formatTime(rs!.d - rs!.t)} left</span>
+              <span className="bar" aria-hidden="true"><span style={{ width: Math.round((rs!.t / rs!.d) * 100) + '%' }} /></span>
+            </span>
+            <span className="continue-play"><PlayIcon width={16} height={16} /></span>
+          </button>
         ))}
       </div>
     </>
@@ -462,6 +537,7 @@ function RefList({ items, shares, empty, onClear }: { items: Ref[]; shares: Shar
 function Home({ shares, fav, recents }: { shares: Share[]; fav: ReturnType<typeof useFavorites>; recents: ReturnType<typeof useRecents> }) {
   return (
     <>
+      <ContinueCards items={recents.list} />
       <h2 className="page-title">Shared folders</h2>
       {shares.length === 0 && (
         <div className="empty"><Aubree state="empty" size={140} /><h3>Nothing is shared yet</h3><p className="muted">On the phone, open Files and add a folder to share.</p></div>
@@ -474,7 +550,7 @@ function Home({ shares, fav, recents }: { shares: Share[]; fav: ReturnType<typeo
           </a>
         ))}
       </div>
-      {recents.list.length > 0 && <><h3 className="section">Continue</h3><RefList items={recents.list.slice(0, 6)} shares={shares} empty="" /></>}
+      {recents.list.length > 0 && <><h3 className="section">Recent files</h3><RefList items={recents.list.slice(0, 6)} shares={shares} empty="" /></>}
       {fav.list.length > 0 && <><h3 className="section">Favorites</h3><RefList items={fav.list.slice(0, 6)} shares={shares} empty="" /></>}
     </>
   )
@@ -482,28 +558,71 @@ function Home({ shares, fav, recents }: { shares: Share[]; fav: ReturnType<typeo
 
 type InstallEvent = Event & { prompt: () => Promise<void> }
 
-function Settings({ theme, install, standalone }: { theme: ReturnType<typeof useTheme>; install: InstallEvent | null; standalone: boolean }) {
+function Choice<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: [T, string][]; onChange: (v: T) => void }) {
+  return (
+    <div className="setting-row">
+      <span className="setting-label" id={'lbl-' + label}>{label}</span>
+      <div className="segmented nm-inset" role="radiogroup" aria-labelledby={'lbl-' + label}>
+        {options.map(([v, text]) => <button key={v} role="radio" aria-checked={value === v} className={value === v ? 'on' : ''} onClick={() => onChange(v)}>{text}</button>)}
+      </div>
+    </div>
+  )
+}
+
+function Switch({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="switch">
+      <span className="switch-text"><span>{label}</span>{hint && <small className="muted">{hint}</small>}</span>
+      <input type="checkbox" role="switch" checked={checked} onChange={e => onChange(e.target.checked)} />
+      <span className="switch-track" aria-hidden="true"><span /></span>
+    </label>
+  )
+}
+
+function Settings({ theme, display, setDisplay, install, standalone, onShortcuts }: {
+  theme: ReturnType<typeof useTheme>; display: Display; setDisplay: <K extends keyof Display>(k: K, v: Display[K]) => void
+  install: InstallEvent | null; standalone: boolean; onShortcuts: () => void
+}) {
+  const [resume, setResume] = useSetting('resume', true)
   return (
     <>
       <h2 className="page-title">Settings</h2>
-      <div className="nm-raised card stack settings">
-        <h3>Appearance</h3>
-        <div className="segmented nm-inset wide" role="group" aria-label="Theme">
-          {(['system', 'light', 'dark'] as ThemeMode[]).map(m => <button key={m} className={theme.mode === m ? 'on' : ''} onClick={() => theme.setMode(m)}>{m[0].toUpperCase() + m.slice(1)}</button>)}
-        </div>
-        <h3>Accent color</h3>
-        <div className="swatches">
-          {Object.entries(ACCENTS).map(([k, a]) => (
-            <button key={k} className={'swatch nm-btn round' + (theme.accent === k ? ' on' : '')} style={{ ['--sw' as string]: a.light }} onClick={() => theme.setAccent(k)} aria-label={a.name} aria-pressed={theme.accent === k}>
-              {theme.accent === k && <CheckIcon />}</button>
-          ))}
-        </div>
-        <h3>Install as an app</h3>
-        {standalone ? <p className="muted">DropLink is running as an installed app.</p>
-          : install ? <button className="nm-btn primary" onClick={() => install.prompt()}><DownloadIcon /> Install DropLink</button>
-          : <p className="muted small">In Chrome open the ⋮ menu and choose Install app or Add to Home screen. DropLink uses a self-signed certificate, so some browsers only create a shortcut instead of a full app; a shortcut still opens it in one tap.</p>}
-        <p className="muted small"><a href="/privacy.html">Privacy Policy</a> · <a href="https://github.com/trebronwayne/DropLink/issues" target="_blank" rel="noreferrer">Report an issue</a> · <a href="mailto:trebronwayne@gmail.com">Send feedback</a></p>
-        <p className="muted small">Keyboard: Space play/pause · J / L back/forward 10 s · N / P next/previous track.</p>
+      <div className="settings-grid">
+        <section className="nm-raised card stack settings" aria-labelledby="set-appearance">
+          <h3 id="set-appearance">Appearance</h3>
+          <Choice label="Theme" value={theme.mode} options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']] as [ThemeMode, string][]} onChange={theme.setMode} />
+          <div className="setting-row">
+            <span className="setting-label" id="lbl-accent">Accent color</span>
+            <div className="swatches" role="radiogroup" aria-labelledby="lbl-accent">
+              {Object.entries(ACCENTS).map(([k, a]) => (
+                <button key={k} role="radio" aria-checked={theme.accent === k} className={'swatch nm-btn round' + (theme.accent === k ? ' on' : '')} style={{ ['--sw' as string]: a.light }} onClick={() => theme.setAccent(k)} aria-label={a.name} title={a.name}>
+                  {theme.accent === k && <CheckIcon />}</button>
+              ))}
+            </div>
+          </div>
+          <Choice label="Density" value={display.density} options={[['comfortable', 'Comfortable'], ['compact', 'Compact']]} onChange={v => setDisplay('density', v)} />
+        </section>
+
+        <section className="nm-raised card stack settings" aria-labelledby="set-access">
+          <h3 id="set-access">Accessibility</h3>
+          <Choice label="Text size" value={display.text} options={[['normal', 'Normal'], ['large', 'Large'], ['xlarge', 'Extra large']]} onChange={v => setDisplay('text', v)} />
+          <Switch label="Reduce motion" hint="Turns off animations and smooth scrolling." checked={display.motion === 'reduce'} onChange={v => setDisplay('motion', v ? 'reduce' : 'auto')} />
+          <Switch label="High contrast" hint="Stronger text and borders." checked={display.contrast === 'high'} onChange={v => setDisplay('contrast', v ? 'high' : 'normal')} />
+          <button className="nm-btn" onClick={onShortcuts}><KeyboardIcon /> Keyboard shortcuts</button>
+        </section>
+
+        <section className="nm-raised card stack settings" aria-labelledby="set-play">
+          <h3 id="set-play">Playback</h3>
+          <Switch label="Resume where I left off" hint="Videos and long tracks continue from their last position." checked={resume} onChange={setResume} />
+        </section>
+
+        <section className="nm-raised card stack settings" aria-labelledby="set-app">
+          <h3 id="set-app">Install as an app</h3>
+          {standalone ? <p className="muted">DropLink is running as an installed app.</p>
+            : install ? <button className="nm-btn primary" onClick={() => install.prompt()}><DownloadIcon /> Install DropLink</button>
+            : <p className="muted small">In Chrome open the ⋮ menu and choose Install app or Add to Home screen. DropLink uses a self-signed certificate, so some browsers only create a shortcut instead of a full app; a shortcut still opens it in one tap.</p>}
+          <p className="muted small"><a href="/privacy.html">Privacy Policy</a> · <a href="https://github.com/trebronwayne/DropLink/issues" target="_blank" rel="noreferrer">Report an issue</a> · <a href="mailto:trebronwayne@gmail.com">Send feedback</a></p>
+        </section>
       </div>
     </>
   )
@@ -567,6 +686,7 @@ function SpeedTest() {
 function ConnectDialog({ onClose }: { onClose: () => void }) {
   const [list, setList] = useState<{ url: string; label: string }[] | null>(null)
   const [copied, setCopied] = useState('')
+  const dialog = useDialog<HTMLElement>(onClose)
   useEffect(() => { api.addresses().then(setList).catch(() => setList([])) }, [])
   const share = async (url: string) => {
     try {
@@ -576,7 +696,7 @@ function ConnectDialog({ onClose }: { onClose: () => void }) {
   }
   return (
     <div className="overlay" onClick={onClose}>
-      <section className="viewer nm-raised connect" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Connect another device">
+      <section ref={dialog} tabIndex={-1} className="viewer nm-raised connect" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Connect another device">
         <header className="viewer-bar"><QrIcon /><strong>Connect another device</strong><span className="spacer" />
           <button className="icon-btn" onClick={onClose} aria-label="Close"><CloseIcon /></button></header>
         <div className="connect-body">
@@ -606,6 +726,8 @@ function Shell() {
   const fav = useFavorites()
   const recents = useRecents()
   const player = usePlayer()
+  const disp = useDisplay()
+  const [help, setHelp] = useState(false)
   const [authed, setAuthed] = useState<boolean | null>(() => (load<Share[] | null>('shares', null) ? true : null))
   const [shares, setShares] = useState<Share[]>(() => load<Share[]>('shares', []))
   const [route, setRoute] = useState<Route>(parseHash())
@@ -641,20 +763,48 @@ function Shell() {
   }, [])
   useEffect(() => { if (authed && shares.length === 1 && !route.share) location.hash = toHash(shares[0].id, []) }, [authed, shares, route.share])
 
-  // Keyboard shortcuts for the player.
+  // Keyboard shortcuts. They never hijack typing, focused buttons or open dialogs.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
       const t = e.target as HTMLElement
-      if (/INPUT|SELECT|TEXTAREA/.test(t.tagName) || e.ctrlKey || e.metaKey || e.altKey || !player.current) return
-      if (e.key === ' ') { e.preventDefault(); player.toggle() }
-      else if (e.key === 'j') player.seekBy(-10)
-      else if (e.key === 'l') player.seekBy(10)
-      else if (e.key === 'n') player.next()
-      else if (e.key === 'p') player.prev()
+      if (/INPUT|SELECT|TEXTAREA/.test(t.tagName) || t.isContentEditable) return
+      if (document.querySelector('[aria-modal="true"]')) return
+      if (e.key === '?') { e.preventDefault(); setHelp(true); return }
+      if (e.key === '/') { const box = document.querySelector<HTMLInputElement>('input[type="search"]'); if (box) { e.preventDefault(); box.focus() } return }
+      if (!player.current) return
+      const onControl = t.tagName === 'BUTTON' || t.tagName === 'A'
+      switch (e.key) {
+        case ' ': if (onControl) return; e.preventDefault(); player.toggle(); break
+        case 'j': player.seekBy(-10); break
+        case 'l': player.seekBy(10); break
+        case 'ArrowLeft': if (!onControl) player.seekBy(-5); break
+        case 'ArrowRight': if (!onControl) player.seekBy(5); break
+        case 'ArrowUp': if (player.mode === 'full') { e.preventDefault(); player.volumeBy(0.05) } break
+        case 'ArrowDown': if (player.mode === 'full') { e.preventDefault(); player.volumeBy(-0.05) } break
+        case 'm': player.toggleMute(); break
+        case 'f': if (player.current.kind === 'video') player.fullscreen(); break
+        case 's': player.toggleShuffle(); break
+        case 'r': player.cycleRepeat(); break
+        case '>': player.cycleRate(); break
+        case 'n': player.next(); break
+        case 'p': player.prev(); break
+        default: break
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [player])
+
+  // Page title and focus follow the route, so screen readers announce where you are.
+  const firstRoute = useRef(true)
+  useEffect(() => {
+    const names: Record<string, string> = { favorites: 'Favorites', recent: 'Recent', settings: 'Settings', speed: 'Speed test' }
+    const place = names[route.share] ?? (route.share ? (route.segments[route.segments.length - 1] ?? shares.find(x => x.id === route.share)?.name ?? '') : 'Home')
+    document.title = place ? `${place} · DropLink` : 'DropLink'
+    if (firstRoute.current) { firstRoute.current = false; return }
+    document.getElementById('content')?.focus({ preventScroll: true })
+  }, [route, shares])
 
   if (down && !authed) return <Reconnect full onRetry={loadShares} />
   if (authed === null) return <main className="center"><div className="splash"><Aubree state="wait" size={104} /><p className="muted">Connecting…</p></div></main>
@@ -663,26 +813,28 @@ function Shell() {
   const page = PAGES.includes(route.share) ? route.share : ''
   const current = shares.find(s => s.id === route.share)
   const nav = (href: string, label: string, icon: React.ReactElement, active: boolean) => (
-    <a className={'nav-item' + (active ? ' active' : '')} href={href}>{icon}<span className="ellipsis">{label}</span></a>
+    <a className={'nav-item' + (active ? ' active' : '')} href={href} aria-current={active ? 'page' : undefined}>{icon}<span className="ellipsis">{label}</span></a>
   )
 
   return (
     <div className={'shell' + (player.current ? ' has-player' : '')}>
+      <a className="skip-link" href="#content" onClick={e => { e.preventDefault(); document.getElementById('content')?.focus() }}>Skip to content</a>
       <header className="appbar">
         <a className="brand" href="#/"><Logo size={28} /><span>DropLink</span></a>
         <span className="spacer" />
         {installEvent && !standalone && <button className="nm-btn sm" onClick={() => installEvent.prompt()}><DownloadIcon width={18} height={18} /> <span className="hide-narrow">Install app</span></button>}
         <button className="nm-btn sm" onClick={() => setConnect(true)}><QrIcon width={18} height={18} /> <span className="hide-narrow">Connect a device</span></button>
+        <button className="icon-btn hide-narrow" onClick={() => setHelp(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts ( ? )"><HelpIcon /></button>
         <span className="secure small"><ShieldIcon width={16} height={16} /> <span className="hide-narrow">Connected securely</span></span>
       </header>
       <div className="body">
-        <nav className="nav nm-raised" aria-label="Navigation">
+        <nav className="nav nm-raised" aria-label="Main">
           {nav('#/', 'Home', <HomeIcon />, !route.share)}
           {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}
           {nav('#/recent', 'Recent', <ClockIcon />, page === 'recent')}
           <div className="nav-title">Shared folders</div>
           {shares.map(s => (
-            <a key={s.id} className={'nav-item' + (s.id === route.share ? ' active' : '')} href={toHash(s.id, [])} onPointerEnter={() => api.prefetch(s.id, '')}>
+            <a key={s.id} className={'nav-item' + (s.id === route.share ? ' active' : '')} href={toHash(s.id, [])} aria-current={s.id === route.share ? 'page' : undefined} onPointerEnter={() => api.prefetch(s.id, '')}>
               <FileTypeIcon kind="folder" size={22} /><span className="ellipsis">{s.name}</span>
             </a>
           ))}
@@ -690,10 +842,10 @@ function Shell() {
           {nav('#/speed', 'Speed test', <GaugeIcon />, page === 'speed')}
           {nav('#/settings', 'Settings', <SettingsIcon />, page === 'settings')}
         </nav>
-        <main className="content">
+        <main className="content" id="content" tabIndex={-1}>
           {down && <Reconnect onRetry={loadShares} />}
           {page === 'speed' ? <SpeedTest />
-            : page === 'settings' ? <Settings theme={theme} install={installEvent} standalone={standalone} />
+            : page === 'settings' ? <Settings theme={theme} display={disp.display} setDisplay={disp.set} install={installEvent} standalone={standalone} onShortcuts={() => setHelp(true)} />
             : page === 'favorites' ? <><h2 className="page-title">Favorites</h2><RefList items={fav.list} shares={shares} empty="Tap the star on any file or folder to keep it here." /></>
             : page === 'recent' ? <><h2 className="page-title">Recent</h2><RefList items={recents.list} shares={shares} empty="Files you open will appear here." onClear={recents.clear} /></>
             : current ? <Browser key={current.id} route={route} shareName={current.name} fav={fav} recents={recents} />
@@ -701,7 +853,8 @@ function Shell() {
         </main>
       </div>
       {connect && <ConnectDialog onClose={() => setConnect(false)} />}
-      <nav className="tabbar nm-raised" aria-label="Navigation">
+      {help && <ShortcutsDialog onClose={() => setHelp(false)} />}
+      <nav className="tabbar nm-raised" aria-label="Quick navigation">
         {nav('#/', 'Home', <HomeIcon />, !route.share)}
         {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}
         {nav('#/recent', 'Recent', <ClockIcon />, page === 'recent')}
@@ -712,5 +865,5 @@ function Shell() {
 }
 
 export default function App() {
-  return <PlayerProvider><Shell /></PlayerProvider>
+  return <ToastProvider><PlayerProvider><Shell /></PlayerProvider></ToastProvider>
 }

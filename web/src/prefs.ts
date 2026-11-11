@@ -15,27 +15,26 @@ export function save(key: string, value: unknown) {
 /* ---------- theme ---------- */
 export type ThemeMode = 'system' | 'light' | 'dark'
 export const ACCENTS: Record<string, { name: string; light: string; dark: string }> = {
-  copper: { name: 'Copper', light: '#a9622f', dark: '#d4965f' },
-  blue: { name: 'Blue', light: '#2f7de1', dark: '#5aa2ff' },
-  teal: { name: 'Teal', light: '#0e9f94', dark: '#35d3c6' },
-  violet: { name: 'Violet', light: '#7a5af5', dark: '#a58bff' },
-  rose: { name: 'Rose', light: '#e0457b', dark: '#ff7aa5' },
-  amber: { name: 'Amber', light: '#d98a0b', dark: '#ffbf47' }
+  blue: { name: 'Blue', light: '#0f6cbd', dark: '#4da3ff' },
+  teal: { name: 'Teal', light: '#0e7c86', dark: '#3cc3cf' },
+  violet: { name: 'Indigo', light: '#4f52b2', dark: '#9b9df5' },
+  green: { name: 'Green', light: '#107c41', dark: '#4fbf7f' },
+  graphite: { name: 'Graphite', light: '#4b5563', dark: '#a4adb9' }
 }
 
 export function applyTheme(mode: ThemeMode, accent: string) {
   const root = document.documentElement
   const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
   root.dataset.theme = dark ? 'dark' : 'light'
-  const a = ACCENTS[accent] ?? ACCENTS.copper
+  const a = ACCENTS[accent] ?? ACCENTS.blue
   root.style.setProperty('--accent', dark ? a.dark : a.light)
   const meta = document.querySelector('meta[name="theme-color"]')
-  meta?.setAttribute('content', dark ? '#0c0908' : '#f8f3ee')
+  meta?.setAttribute('content', dark ? '#16181c' : '#f3f5f8')
 }
 
 export function useTheme() {
-  const [mode, setMode] = useState<ThemeMode>(() => load('theme', 'dark'))
-  const [accent, setAccent] = useState<string>(() => load('accent', 'copper'))
+  const [mode, setMode] = useState<ThemeMode>(() => load('theme', 'system'))
+  const [accent, setAccent] = useState<string>(() => load('accent', 'blue'))
   useEffect(() => {
     applyTheme(mode, accent)
     save('theme', mode); save('accent', accent)
@@ -46,6 +45,48 @@ export function useTheme() {
     return () => mq.removeEventListener('change', on)
   }, [mode, accent])
   return { mode, setMode, accent, setAccent }
+}
+
+/* ---------- display & accessibility ---------- */
+export type Display = { text: 'normal' | 'large' | 'xlarge'; motion: 'auto' | 'reduce'; contrast: 'normal' | 'high'; density: 'comfortable' | 'compact' }
+const DISPLAY_DEFAULT: Display = { text: 'normal', motion: 'auto', contrast: 'normal', density: 'comfortable' }
+const readDisplay = (): Display => ({ ...DISPLAY_DEFAULT, ...load<Partial<Display>>('display', {}) })
+function applyDisplay(d: Display) {
+  const root = document.documentElement
+  root.dataset.text = d.text; root.dataset.motion = d.motion; root.dataset.contrast = d.contrast; root.dataset.density = d.density
+}
+applyDisplay(readDisplay()) // before the first paint, so large text or high contrast never flashes
+
+export function useDisplay() {
+  const [display, setDisplay] = useState<Display>(readDisplay)
+  useEffect(() => { applyDisplay(display); save('display', display) }, [display])
+  const set = useCallback(<K extends keyof Display>(key: K, value: Display[K]) => setDisplay(cur => ({ ...cur, [key]: value })), [])
+  return { display, set }
+}
+
+/** A simple persisted setting. */
+export function useSetting<T>(key: string, fallback: T): [T, (v: T) => void] {
+  const [value, setValue] = useState<T>(() => load(key, fallback))
+  const set = useCallback((next: T) => { setValue(next); save(key, next) }, [key])
+  return [value, set]
+}
+
+/* ---------- resume positions (videos and long audio) ---------- */
+type ResumeEntry = { t: number; d: number; at: number }
+let resumeCache: Record<string, ResumeEntry> | null = null
+const resumeMap = () => {
+  if (!resumeCache) resumeCache = load<Record<string, ResumeEntry>>('resume-map', {})
+  return resumeCache
+}
+export const getResume = (share: string, path: string): ResumeEntry | undefined => resumeMap()[share + '|' + path]
+export function setResume(share: string, path: string, t: number, d: number) {
+  const map = resumeMap()
+  const key = share + '|' + path
+  if (!isFinite(d) || d <= 0 || t < 5 || t > d - 10) delete map[key]
+  else map[key] = { t, d, at: Date.now() }
+  const keys = Object.keys(map)
+  if (keys.length > 150) keys.sort((x, y) => map[x].at - map[y].at).slice(0, keys.length - 150).forEach(k => { delete map[k] })
+  save('resume-map', map)
 }
 
 /* ---------- favorites & recents ---------- */

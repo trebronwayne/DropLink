@@ -141,3 +141,9 @@ export const PipIcon = (p: IconProps) => <svg {...line(p)}><rect x="3.500" y="5"
 export const OfflineIcon = (p: IconProps) => <svg {...line(p)}><path d="M3 9a14 14 0 0 1 18 0M6 12.500a9 9 0 0 1 12 0M9.200 16a4.500 4.500 0 0 1 5.600 0M4 4l16 16" /></svg>
 export const TrashIcon = (p: IconProps) => <svg {...line(p)}><path d="M5 7h14M10 7V5h4v2M7 7l.8 12h8.400L17 7" /></svg>
 export const QrIcon = (p: IconProps) => <svg {...line(p)}><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><path d="M14 14h3v3h-3zM20 14v.01M14 20h3m3-3v3" /></svg>
+export const MoonIcon = (p: IconProps) => <svg {...line(p)}><path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500Z" /></svg>
+export const KeyboardIcon = (p: IconProps) => <svg {...line(p)}><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10" /></svg>
+export const ZoomInIcon = (p: IconProps) => <svg {...line(p)}><circle cx="11" cy="11" r="6.500" /><path d="m20 20-4.200-4.200M11 8.500v5M8.500 11h5" /></svg>
+export const ZoomOutIcon = (p: IconProps) => <svg {...line(p)}><circle cx="11" cy="11" r="6.500" /><path d="m20 20-4.200-4.200M8.500 11h5" /></svg>
+export const LinkIcon = (p: IconProps) => <svg {...line(p)}><path d="M10 14a4 4 0 0 0 5.700 0l3-3a4 4 0 0 0-5.700-5.700l-1 1M14 10a4 4 0 0 0-5.700 0l-3 3a4 4 0 0 0 5.700 5.700l1-1" /></svg>
+export const HelpIcon = (p: IconProps) => <svg {...line(p)}><circle cx="12" cy="12" r="8.500" /><path d="M9.700 9.500a2.400 2.400 0 1 1 3.400 2.200c-.7.400-1.100.900-1.100 1.800M12 17h.01" /></svg>
