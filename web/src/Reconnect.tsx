@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { CloseIcon, Logo, OfflineIcon, QrIcon, RefreshIcon } from './icons'
+import { CloseIcon, QrIcon, RefreshIcon } from './icons'
+import { Aubree } from './Aubree'
 
 /** Turns what the user typed or scanned into a DropLink address, or null if it is not one. */
 export function parseAddress(text: string): string | null {
@@ -79,7 +80,7 @@ export function Reconnect({ onRetry, full }: { onRetry: () => void; full?: boole
   return (
     <div className={full ? 'center' : ''}>
       <div className={'nm-raised card reconnect' + (full ? ' pair' : '')} role="alert">
-        {full ? <div className="pair-logo nm-inset"><Logo size={64} /></div> : <OfflineIcon width={32} height={32} />}
+        <Aubree state="offline" size={full ? 140 : 88} />
         <h2>Can’t reach the phone</h2>
         <p className="muted">Hosting may have stopped, the phone may be on another network, or its address may have changed. DropLink keeps trying in the background.</p>
         <div className="reconnect-actions">

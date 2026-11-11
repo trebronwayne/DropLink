@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Aubree, the DropLink mascot
+- App: a first-run "Meet Aubree" welcome, small banner toasts (hosting on or off, someone wants to connect, a device joined, folder shared, connection test, Battery Saver, errors), a Home card that shows what the server is doing, and Aubree on empty screens, the pairing request, the problem report and the Battery Saver warning. Uses AubreeKit 1.0.0 from JitPack.
+- Web client: Aubree welcomes a device that asks to connect, waits with it for approval, celebrates when it is approved, and appears on the connecting, can't-reach-the-phone, error and empty screens. She shows as a still picture when the system asks for reduced motion.
+- Server: WebP pictures are served with the right content type. The web client's type check now passes with React 19 types.
+- Removed Aubree from the "Coming soon" lists.
+
 ### Host a page
 - Publish a website from a folder at `/site/`, with sign-in accounts (salted PBKDF2 hashes), a `private/` area for signed-in visitors, and `/site-api/` endpoints so pages can sign people in and send information to the phone. Optional "approved devices only" mode.
 - New "Host a page" card under Files; guide in `docs/HOST_PAGE.md`; working example in `samples/login-site/`.

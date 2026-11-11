@@ -1,5 +1,6 @@
 package io.github.trebronwayne.droplink.ui
 
+import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +50,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -63,6 +66,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.trebronwayne.aubree.AubreeState
+import com.trebronwayne.aubree.compose.Aubree
 import io.github.trebronwayne.droplink.BuildConfig
 import io.github.trebronwayne.droplink.R
 import io.github.trebronwayne.droplink.core.DiscoveredNode
@@ -71,11 +76,15 @@ import io.github.trebronwayne.droplink.core.SharedFolder
 import io.github.trebronwayne.droplink.core.StatsSnapshot
 import io.github.trebronwayne.droplink.core.TrustedDevice
 import io.github.trebronwayne.droplink.service.LocalServerService
+import io.github.trebronwayne.droplink.ui.components.AubreeEmptyState
+import io.github.trebronwayne.droplink.ui.components.AubreeStatusCard
+import io.github.trebronwayne.droplink.ui.components.AubreeToastHost
+import io.github.trebronwayne.droplink.ui.components.AubreeToasts
+import io.github.trebronwayne.droplink.ui.components.MeetAubreeDialog
 import io.github.trebronwayne.droplink.ui.components.DropButton
 import io.github.trebronwayne.droplink.ui.components.DropButtonStyle
 import io.github.trebronwayne.droplink.ui.components.DropCard
 import io.github.trebronwayne.droplink.ui.components.DropDeviceCard
-import io.github.trebronwayne.droplink.ui.components.DropEmptyState
 import io.github.trebronwayne.droplink.ui.components.DropIconTile
 import io.github.trebronwayne.droplink.ui.components.DropInfoCard
 import io.github.trebronwayne.droplink.ui.components.DropSectionTitle
@@ -139,6 +148,8 @@ data class FilesUi(
 @Composable
 fun DropLinkApp(nodeId: String, host: HostUi, files: FilesUi, pairing: PairingUi, network: NetworkUi) {
     var current by rememberSaveable { mutableStateOf(Destination.Home) }
+    val toasts = remember { AubreeToasts() }
+    AubreeMoments(toasts, host, files, pairing)
     Surface(modifier = Modifier.fillMaxSize(), color = DropTheme.colors.background) {
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             val wide = maxWidth >= 600.dp
@@ -156,7 +167,98 @@ fun DropLinkApp(nodeId: String, host: HostUi, files: FilesUi, pairing: PairingUi
                     BottomNavigation(current) { current = it }
                 }
             }
+            AubreeToastHost(toasts, Modifier.align(Alignment.TopCenter))
         }
+    }
+    FirstMeeting(toasts)
+}
+
+/** Aubree reacts to what happens: hosting on or off, someone knocking, a device joining, trouble, low power. */
+@Composable
+private fun AubreeMoments(toasts: AubreeToasts, host: HostUi, files: FilesUi, pairing: PairingUi) {
+    var wasHosting by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(host.isHosting) {
+        val before = wasHosting
+        wasHosting = host.isHosting
+        if (before != null && before != host.isHosting) {
+            if (host.isHosting) toasts.show(AubreeState.HAPPY, "Hosting is on. Others can connect.")
+            else toasts.show(AubreeState.SLEEPY, "Hosting stopped.")
+        }
+    }
+
+    var seenRequests by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(pairing.requests) {
+        val fresh = pairing.requests.filter { it.id !in seenRequests }
+        seenRequests = seenRequests + pairing.requests.map { it.id }
+        fresh.firstOrNull()?.let { toasts.show(AubreeState.WELCOME, "${it.deviceName} wants to connect") }
+    }
+
+    var trustedCount by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(pairing.trusted.size) {
+        val before = trustedCount
+        trustedCount = pairing.trusted.size
+        val newest = pairing.trusted.maxByOrNull { it.createdAt }
+        if (before != null && pairing.trusted.size > before && newest != null) {
+            toasts.show(AubreeState.CELEBRATE, "${newest.name} is connected")
+        }
+    }
+
+    var folderCount by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(files.folders.size) {
+        val before = folderCount
+        folderCount = files.folders.size
+        if (before != null && files.folders.size > before) toasts.show(AubreeState.HAPPY, "Folder shared.")
+    }
+
+    LaunchedEffect(host.error) {
+        if (host.error != null) toasts.show(AubreeState.SAD, "Something isn\u2019t going well. Check Home for details.")
+    }
+
+    LaunchedEffect(host.isHosting, host.batterySaver) {
+        if (host.isHosting && host.batterySaver) {
+            toasts.show(AubreeState.LOW_BATTERY, "Battery Saver is on. Hosting may pause in the background.")
+        }
+    }
+
+    LaunchedEffect(host.testResults) {
+        val lines = host.testResults
+        val first = lines.firstOrNull() ?: return@LaunchedEffect
+        when {
+            first.startsWith("Testing") -> toasts.show(AubreeState.WAIT, "Testing the connection\u2026")
+            lines.any { it.startsWith("No Wi-Fi") } -> toasts.show(AubreeState.OFFLINE, "No Wi-Fi or hotspot found.")
+            lines.any { it.startsWith("FAIL") } -> toasts.show(AubreeState.SAD, "Some connection checks failed. Details are on Home.")
+            lines.any { it.startsWith("OK") } -> toasts.show(AubreeState.HAPPY, "All connection checks passed.")
+        }
+    }
+}
+
+/** The first time DropLink opens, Aubree introduces herself. */
+@Composable
+private fun FirstMeeting(toasts: AubreeToasts) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("droplink_ui", Context.MODE_PRIVATE) }
+    var met by remember { mutableStateOf(prefs.getBoolean("met_aubree", false)) }
+    if (!met) {
+        MeetAubreeDialog {
+            prefs.edit().putBoolean("met_aubree", true).apply()
+            met = true
+            toasts.show(AubreeState.HAPPY, "Nice to meet you!")
+        }
+    }
+}
+
+/** Home card that says what the server is doing right now. Hidden while a pairing request is waiting for an answer. */
+@Composable
+private fun HostingBuddy(host: HostUi, pairing: PairingUi) {
+    val paired = pairing.trusted.size
+    when {
+        host.error != null -> AubreeStatusCard(AubreeState.SAD, "Something isn\u2019t going well", host.error)
+        !host.isHosting -> AubreeStatusCard(AubreeState.SLEEPY, "Not hosting yet", "Start hosting and others on your network can connect.")
+        paired == 0 -> AubreeStatusCard(AubreeState.WAIT, "Waiting for someone to connect", "Scan the QR code below, or open the address, on another device.")
+        else -> AubreeStatusCard(
+            AubreeState.HAPPY, "Hosting is on",
+            "$paired device${if (paired == 1) "" else "s"} paired. Others can still connect with the address below."
+        )
     }
 }
 
@@ -177,7 +279,10 @@ private fun ScreenHost(
             pairing.requests.forEach { PairingRequestCard(it, pairing.onApprove, pairing.onDeny) }
             if (host.isHosting && host.batterySaver) {
                 DropCard {
-                    DropText("Battery Saver is on", style = DropTheme.type.subtitle)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
+                        Aubree(state = AubreeState.LOW_BATTERY, size = 56.dp, contentDescription = "")
+                        DropText("Battery Saver is on", style = DropTheme.type.subtitle)
+                    }
                     DropText(
                         "Android pauses background apps while Battery Saver is on, so other devices lose the connection when you leave DropLink. Turn it off while hosting.",
                         style = DropTheme.type.body
@@ -185,6 +290,7 @@ private fun ScreenHost(
                     DropButton("Open Battery Saver settings", host.onOpenBatterySaver, style = DropButtonStyle.Secondary, icon = Icons.Outlined.Settings)
                 }
             }
+            if (pairing.requests.isEmpty()) HostingBuddy(host, pairing)
             DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh, host.error, host.stats, host.testResults, host.onTest, host.onOpenLocal, !host.useHttp)
             DropSectionTitle("Network workspace")
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
@@ -199,7 +305,7 @@ private fun ScreenHost(
             FilesContent(files)
         }
         Destination.Transfers -> ScreenScaffold("Transfers", "Active, queued and completed", wide) {
-            DropEmptyState(Icons.Filled.SwapVert, "No transfers", "Resumable file transfers will appear here.")
+            AubreeEmptyState(AubreeState.EMPTY, "No transfers", "Resumable file transfers will appear here.")
         }
         Destination.Settings -> ScreenScaffold("Settings", "Identity, security and about", wide) {
             SettingsContent(nodeId, host, pairing)
@@ -218,9 +324,12 @@ private fun DiagnosticsCard(text: String, onClear: () -> Unit) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     DropCard {
-        DropText("Problem report", style = type.subtitle)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
+            Aubree(state = AubreeState.SAD, size = 56.dp, contentDescription = "")
+            DropText("Something isn\u2019t going well", style = type.subtitle)
+        }
         DropText(
-            "Something went wrong. Please email this report to ${Support.EMAIL} so it can be fixed. Nothing is sent unless you press send in your mail app.",
+            "Please email this problem report to ${Support.EMAIL} so it can be fixed. Nothing is sent unless you press send in your mail app.",
             style = type.caption, color = DropTheme.colors.textSecondary
         )
         DropText(text.takeLast(1200), style = type.caption, fontFamily = FontFamily.Monospace)
@@ -237,8 +346,13 @@ private fun PairingRequestCard(request: PairRequest, onApprove: (String) -> Unit
     val type = DropTheme.type
     val secondary = DropTheme.colors.textSecondary
     DropCard {
-        DropText("Pairing request", style = type.subtitle)
-        DropText("${request.deviceName} wants to browse your shared folders.", style = type.body)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
+            Aubree(state = AubreeState.WELCOME, size = 64.dp, contentDescription = "")
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
+                DropText("Someone wants to connect", style = type.subtitle)
+                DropText("${request.deviceName} wants to browse your shared folders.", style = type.body)
+            }
+        }
         DropText(request.code, style = type.title, fontFamily = FontFamily.Monospace)
         DropText("Approve only if this code matches the one shown on that device.", style = type.caption, color = secondary)
         Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
@@ -253,8 +367,8 @@ private fun ServersContent(network: NetworkUi) {
     val type = DropTheme.type
     val secondary = DropTheme.colors.textSecondary
     if (network.nodes.isEmpty()) {
-        DropEmptyState(
-            Icons.Filled.Dns, "No other DropLink nodes found",
+        AubreeEmptyState(
+            AubreeState.SEARCHING, "Looking for other DropLink nodes",
             "Make sure the other phone is hosting and both are on the same Wi-Fi or hotspot. Some phones cannot see devices from the hotspot side; you can still type the address shown on the other phone."
         )
     } else {
@@ -291,7 +405,7 @@ private fun FilesContent(files: FilesUi) {
         DropButton("Add shared folder", files.onAdd, Modifier.fillMaxWidth(), icon = Icons.Outlined.CreateNewFolder)
     }
     if (files.folders.isEmpty()) {
-        DropEmptyState(Icons.Filled.Folder, "Nothing shared yet", "Add a folder to make its files available to web browsers on your network.")
+        AubreeEmptyState(AubreeState.EMPTY, "Nothing shared yet", "Add a folder to make its files available to web browsers on your network.")
     } else {
         files.folders.forEach { folder ->
             DropCard {
@@ -403,8 +517,7 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
             "People: see who is connected, send messages, files and attachments",
             "Uploads to the phone: approve once or always",
             "Feedback: visitors write to you and you reply",
-            "A richer device list with more details about each device",
-            "Aubree, the DropLink mascot: friendly animations for waiting, success, celebration, failure and empty screens"
+            "A richer device list with more details about each device"
         ).forEach { DropText("•  $it", style = type.caption, color = secondary) }
     }
     DropCard {

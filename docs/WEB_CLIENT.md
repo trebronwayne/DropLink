@@ -15,3 +15,5 @@ Set the proxy target in `vite.config.ts` to the phone's address, run `npm run de
 
 ## Features
 Pairing request with on-phone approval, shared folder list, folder browsing with breadcrumbs (hash routing), preview for images, video, audio, PDF and text, and download for everything.
+
+Aubree, the mascot, lives in `web/src/Aubree.tsx`. Her pictures are in `web/src/aubree/` (animation plus a still for reduced motion) and are built into hashed files, so browsers cache them for good.

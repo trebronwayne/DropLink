@@ -59,6 +59,7 @@
 | 🔄 **Reconnects by itself** | If the address changes, scan the new QR code from the "Can't reach the phone" screen. |
 | 🛡️ **Built to keep hosting** | Foreground service, wake and Wi-Fi locks, a self-checking watchdog, and a warning when Battery Saver would pause it. |
 | 🚀 **Speed test** | Measure the link between a device and the phone. |
+| 🐶 **Aubree, the DropLink mascot** | Aubree welcomes people who ask to connect, waits with them for approval, celebrates when a device joins, and shows up for empty screens, errors and low power. She comes from [AubreeKit](https://github.com/trebronwayne/AubreeKit). |
 
 ## 🌐 Host a page
 
@@ -91,7 +92,6 @@ Read the [Host a page guide](docs/HOST_PAGE.md) and try the ready-made [sample s
 | 👥 **People** | See who is connected and send them messages, files and attachments. |
 | 💬 **Feedback** | Visitors send feedback to you, and you reply. |
 | 📋 **Richer device list** | More detail about every connected device. |
-| 🐦 **Aubree, the DropLink mascot** | A cute animated companion with states for waiting and loading, success, celebration, failure and empty screens. |
 
 Follow progress in the [roadmap](docs/ROADMAP.md).
 

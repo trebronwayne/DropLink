@@ -295,9 +295,9 @@ object DropLinkServer {
                         if (acceptsGzip && asset.gzip != null) {
                             call.response.header(HttpHeaders.ContentEncoding, "gzip")
                             call.response.header(HttpHeaders.Vary, "Accept-Encoding")
-                            call.respondBytes(asset.gzip, ContentType.defaultForFilePath(rel))
+                            call.respondBytes(asset.gzip, staticType(rel))
                         } else {
-                            call.respondBytes(asset.raw, ContentType.defaultForFilePath(rel))
+                            call.respondBytes(asset.raw, staticType(rel))
                         }
                     }
                 }
@@ -307,6 +307,10 @@ object DropLinkServer {
 
 
     /** Answers with the whole file or the requested byte range (needed for seeking in audio and video). */
+    /** Content type for the bundled web client; Aubree's pictures are WebP. */
+    private fun staticType(rel: String): ContentType =
+        if (rel.endsWith(".webp")) ContentType.parse("image/webp") else ContentType.defaultForFilePath(rel)
+
     private suspend fun ApplicationCall.respondRange(app: Context, file: io.github.trebronwayne.droplink.core.DocEntry, type: ContentType) {
         val length = file.size
         var start = 0L

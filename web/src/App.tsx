@@ -5,6 +5,7 @@ import {
   HomeIcon, ListIcon, Logo, OfflineIcon, PlayIcon, PlusIcon, QrIcon, RefreshIcon, SearchIcon, SettingsIcon, ShieldIcon, SortIcon, StarFillIcon, StarIcon
 } from './icons'
 import { Reconnect } from './Reconnect'
+import { Aubree, AubreeState } from './Aubree'
 import { PlayerProvider, Track, usePlayer } from './player'
 import { ACCENTS, load, Ref, save, ThemeMode, useFavorites, useRecents, useTheme } from './prefs'
 import { formatDate, formatSize, Kind, kindOf } from './util'
@@ -37,13 +38,18 @@ function Pair({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState(guessDeviceName())
   const [request, setRequest] = useState<{ id: string; code: string } | null>(null)
   const [message, setMessage] = useState('')
+  const [mood, setMood] = useState<AubreeState>('welcome')
+  const [approved, setApproved] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const start = async (ev: React.FormEvent) => {
     ev.preventDefault()
     setBusy(true); setMessage('')
-    try { setRequest(await api.pairRequest(name.trim())) }
-    catch (e) { setMessage(e instanceof LockedError ? 'Too many requests. Wait a minute, then try again.' : 'Could not reach the phone.') }
+    try { setRequest(await api.pairRequest(name.trim())); setMood('wait') }
+    catch (e) {
+      if (e instanceof LockedError) { setMessage('Too many requests. Wait a minute, then try again.'); setMood('sleepy') }
+      else { setMessage('Could not reach the phone.'); setMood('offline') }
+    }
     finally { setBusy(false) }
   }
 
@@ -52,10 +58,14 @@ function Pair({ onDone }: { onDone: () => void }) {
     const timer = window.setInterval(async () => {
       try {
         const status = await api.pairStatus(request.id)
-        if (status === 'approved') { window.clearInterval(timer); onDone() }
-        else if (status !== 'pending') {
+        if (status === 'approved') {
+          window.clearInterval(timer)
+          setApproved(true); setMood('celebrate')
+          window.setTimeout(onDone, 1500) // a moment for Aubree to celebrate
+        } else if (status !== 'pending') {
           window.clearInterval(timer); setRequest(null)
           setMessage(status === 'denied' ? 'The request was denied on the phone.' : 'The request expired. Try again.')
+          setMood(status === 'denied' ? 'sad' : 'sleepy')
         }
       } catch { /* keep polling */ }
     }, 1500)
@@ -65,9 +75,13 @@ function Pair({ onDone }: { onDone: () => void }) {
   return (
     <main className="center">
       <div className="nm-raised card pair">
-        <div className="pair-logo nm-inset"><Logo size={64} /></div>
+        <Aubree state={mood} size={144} />
         <h1>DropLink</h1>
-        {!request ? (
+        {approved ? (
+          <div className="stack">
+            <p className="muted" role="status">Approved. Opening your files…</p>
+          </div>
+        ) : !request ? (
           <form onSubmit={start} className="stack">
             <p className="muted">Ask this phone for access. You approve the request on the phone, so nobody else on the network can get in.</p>
             <label className="field-label" htmlFor="device">Device name</label>
@@ -369,7 +383,12 @@ function Browser({ route, shareName, fav, recents }: { route: Route; shareName: 
         </div>
       )}
 
-      {error && <p className="error banner" role="alert">{error}</p>}
+      {error && (
+        <div className="empty" role="alert"><Aubree state="sad" size={120} />
+          <h3>Something isn’t going well</h3>
+          <p className="muted">{error}</p>
+          <button className="nm-btn sm" onClick={() => setReload(n => n + 1)}><RefreshIcon /> Try again</button></div>
+      )}
       {!entries && !error && (
         <div className={view === 'grid' ? 'grid-view' : 'nm-raised list skeleton'} aria-busy="true">
           {[0, 1, 2, 3, 4, 5].map(i => view === 'grid'
@@ -378,7 +397,7 @@ function Browser({ route, shareName, fav, recents }: { route: Route; shareName: 
         </div>
       )}
       {entries && visible.length === 0 && (
-        <div className="empty"><FileTypeIcon kind="folder" size={72} />
+        <div className="empty"><Aubree state="empty" size={132} />
           <h3>{query || filter !== 'all' ? 'No matches' : 'This folder is empty'}</h3>
           <p className="muted">{query || filter !== 'all' ? 'Try a different name or type.' : 'Files added on the phone will show up here.'}</p></div>
       )}
@@ -420,7 +439,7 @@ function RefList({ items, shares, empty, onClear }: { items: Ref[]; shares: Shar
       player.play(tracks, Math.max(0, tracks.findIndex(t => t.path === r.path && t.share === r.share)))
     } else location.hash = toHash(r.share, parent)
   }
-  if (!items.length) return <div className="empty"><StarIcon width={48} height={48} /><p className="muted">{empty}</p></div>
+  if (!items.length) return <div className="empty"><Aubree state="empty" size={112} /><p className="muted">{empty}</p></div>
   return (
     <>
       {onClear && <div className="chips"><span className="spacer" /><button className="nm-btn sm" onClick={onClear}>Clear</button></div>}
@@ -445,7 +464,7 @@ function Home({ shares, fav, recents }: { shares: Share[]; fav: ReturnType<typeo
     <>
       <h2 className="page-title">Shared folders</h2>
       {shares.length === 0 && (
-        <div className="empty"><Logo size={72} /><h3>Nothing is shared yet</h3><p className="muted">On the phone, open Files and add a folder to share.</p></div>
+        <div className="empty"><Aubree state="empty" size={140} /><h3>Nothing is shared yet</h3><p className="muted">On the phone, open Files and add a folder to share.</p></div>
       )}
       <div className="grid-view folders">
         {shares.map(s => (
@@ -638,12 +657,12 @@ function Shell() {
   }, [player])
 
   if (down && !authed) return <Reconnect full onRetry={loadShares} />
-  if (authed === null) return <main className="center"><div className="splash"><Logo size={64} /><p className="muted">Connecting…</p></div></main>
+  if (authed === null) return <main className="center"><div className="splash"><Aubree state="wait" size={104} /><p className="muted">Connecting…</p></div></main>
   if (!authed) return <Pair onDone={loadShares} />
 
   const page = PAGES.includes(route.share) ? route.share : ''
   const current = shares.find(s => s.id === route.share)
-  const nav = (href: string, label: string, icon: JSX.Element, active: boolean) => (
+  const nav = (href: string, label: string, icon: React.ReactElement, active: boolean) => (
     <a className={'nav-item' + (active ? ' active' : '')} href={href}>{icon}<span className="ellipsis">{label}</span></a>
   )
 

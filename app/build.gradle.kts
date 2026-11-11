@@ -76,5 +76,6 @@ dependencies {
     implementation("org.slf4j:slf4j-nop:2.0.16")
     implementation("com.google.zxing:core:3.5.3")
     implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
+    implementation("com.github.trebronwayne.AubreeKit:aubree-compose:1.0.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

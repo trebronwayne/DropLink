@@ -10,7 +10,6 @@
 - [ ] **People**: see who is connected, and send them messages, files and attachments.
 - [ ] **Feedback**: visitors send feedback to the operator, who can reply.
 - [ ] **Richer device list**: more detail about each connected device.
-- [ ] **Aubree, the DropLink mascot**: friendly animations for waiting/loading, success, celebration, failure and empty screens.
 
 ## Phase 0 — Project foundation
 - [x] Establish product vision and package identity.
