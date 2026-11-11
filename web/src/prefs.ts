@@ -15,6 +15,7 @@ export function save(key: string, value: unknown) {
 /* ---------- theme ---------- */
 export type ThemeMode = 'system' | 'light' | 'dark'
 export const ACCENTS: Record<string, { name: string; light: string; dark: string }> = {
+  copper: { name: 'Copper', light: '#a9622f', dark: '#d4965f' },
   blue: { name: 'Blue', light: '#2f7de1', dark: '#5aa2ff' },
   teal: { name: 'Teal', light: '#0e9f94', dark: '#35d3c6' },
   violet: { name: 'Violet', light: '#7a5af5', dark: '#a58bff' },
@@ -26,15 +27,15 @@ export function applyTheme(mode: ThemeMode, accent: string) {
   const root = document.documentElement
   const dark = mode === 'dark' || (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
   root.dataset.theme = dark ? 'dark' : 'light'
-  const a = ACCENTS[accent] ?? ACCENTS.blue
+  const a = ACCENTS[accent] ?? ACCENTS.copper
   root.style.setProperty('--accent', dark ? a.dark : a.light)
   const meta = document.querySelector('meta[name="theme-color"]')
-  meta?.setAttribute('content', dark ? '#22262e' : '#e6ebf2')
+  meta?.setAttribute('content', dark ? '#0c0908' : '#f8f3ee')
 }
 
 export function useTheme() {
-  const [mode, setMode] = useState<ThemeMode>(() => load('theme', 'system'))
-  const [accent, setAccent] = useState<string>(() => load('accent', 'blue'))
+  const [mode, setMode] = useState<ThemeMode>(() => load('theme', 'dark'))
+  const [accent, setAccent] = useState<string>(() => load('accent', 'copper'))
   useEffect(() => {
     applyTheme(mode, accent)
     save('theme', mode); save('accent', accent)

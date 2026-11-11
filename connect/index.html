@@ -3,27 +3,28 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#e6ebf2" />
+<meta name="theme-color" content="#0c0908" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <title>DropLink Connect</title>
 <style>
-  :root { --bg:#e6ebf2; --text:#2a3140; --muted:#6b7587; --accent:#2f7de1; --d:#c2c9d6; --l:#fff; color-scheme: light dark; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#22262e; --text:#eceff5; --muted:#98a2b5; --accent:#5aa2ff; --d:#171a20; --l:#2d333e; } }
+  :root { --bg:#0c0908; --surface:#15100d; --surface-2:#1e1713; --text:#f6efea; --muted:#9a8b82; --line:rgba(255,240,230,.12); --line-strong:rgba(255,240,230,.24); --accent:#d4965f; --accent-text:#e2ae82; --on-accent:#1a0f09; --grad:linear-gradient(135deg,#eebf94,#c98557); --danger:#ff8f7d; color-scheme: dark light; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f8f3ee; --surface:#fff; --surface-2:#f0e8e0; --text:#1b1410; --muted:#6e5f55; --line:rgba(27,20,16,.1); --line-strong:rgba(27,20,16,.28); --accent:#a9622f; --accent-text:#8a4a1f; --on-accent:#fff; --grad:linear-gradient(135deg,#b8703c,#94501f); --danger:#c4361f; } }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px; background:var(--bg); color:var(--text); font:15px/22px 'Segoe UI', system-ui, sans-serif; }
-  main { width:min(420px,100%); padding:26px; border-radius:24px; box-shadow:8px 8px 18px var(--d), -8px -8px 18px var(--l); display:grid; gap:14px; text-align:center; }
-  img.logo { width:84px; height:84px; margin:0 auto; border-radius:22px; }
-  h1 { margin:0; font-size:24px; } p { margin:0; color:var(--muted); }
-  button, input { font:inherit; color:inherit; border:0; border-radius:14px; padding:12px 16px; background:var(--bg); }
-  button { cursor:pointer; font-weight:600; box-shadow:4px 4px 9px var(--d), -4px -4px 9px var(--l); }
-  button:active { box-shadow: inset 3px 3px 7px var(--d), inset -3px -3px 7px var(--l); }
-  button.primary { background:var(--accent); color:#fff; }
-  input { width:100%; box-shadow: inset 3px 3px 7px var(--d), inset -3px -3px 7px var(--l); }
-  video { width:100%; border-radius:16px; background:#000; aspect-ratio:4/3; object-fit:cover; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px; background:var(--bg); color:var(--text); font:15px/22px 'Segoe UI Variable','Segoe UI', system-ui, sans-serif; }
+  main { width:min(420px,100%); padding:28px; border:1px solid var(--line); border-radius:12px; background:var(--surface); display:grid; gap:14px; text-align:center; }
+  img.logo { width:84px; height:84px; margin:0 auto; border-radius:20px; }
+  h1 { margin:0; font-size:24px; font-weight:600; letter-spacing:-.02em; } p { margin:0; color:var(--muted); }
+  button, input { font:inherit; color:inherit; border:1px solid var(--line-strong); border-radius:8px; padding:12px 16px; background:transparent; }
+  button { cursor:pointer; font-weight:600; transition:background-color .18s,border-color .18s; }
+  button:hover { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 14%,transparent); }
+  button.primary { background:var(--grad); border-color:transparent; color:var(--on-accent); } button.primary:hover { filter:brightness(1.08); }
+  input { width:100%; background:var(--surface-2); } input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+  video { width:100%; border:1px solid var(--line-strong); border-radius:12px; background:#000; aspect-ratio:4/3; object-fit:cover; }
   code { word-break:break-all; font-size:13px; }
-  .row { display:grid; gap:10px; } [hidden] { display:none !important; } .err { color:#d13b4e; }
+  .row { display:grid; gap:10px; } [hidden] { display:none !important; } .err { color:var(--danger); }
 </style>
 </head>
 <body>
