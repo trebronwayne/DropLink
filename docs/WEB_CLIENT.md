@@ -14,6 +14,10 @@ Commit the generated `app/src/main/assets/web` so the Android build does not nee
 Set the proxy target in `vite.config.ts` to the phone's address, run `npm run dev`, and open the dev URL.
 
 ## Features
-Pairing request with on-phone approval, shared folder list, folder browsing with breadcrumbs (hash routing), preview for images, video, audio, PDF and text, and download for everything.
+Pairing request with on-phone approval, shared folder list, folder browsing with breadcrumbs (hash routing), preview for images (with zoom), video, audio, PDF and text, and download for everything.
+
+Playback: persistent player with queue (reorder, clear), shuffle, repeat, speed, sleep timer, lock-screen controls, and resume for videos and long tracks. Press `?` in the web client for the keyboard shortcuts.
+
+Accessibility and display (Settings): theme, accent colour, density, text size, reduce motion and high contrast. Dialogs trap focus, controls are labelled, and the page title and focus follow the route.
 
 Aubree, the mascot, lives in `web/src/Aubree.tsx`. Her pictures are in `web/src/aubree/` (animation plus a still for reduced motion) and are built into hashed files, so browsers cache them for good.

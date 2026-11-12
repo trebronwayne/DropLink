@@ -3,6 +3,10 @@
 </p>
 
 <p align="center">
+  <img src="web/src/aubree/welcome.webp" alt="Aubree, the DropLink mascot, waving hello" width="170" />
+</p>
+
+<p align="center">
   <a href="https://github.com/trebronwayne/DropLink/releases"><img alt="Download" src="https://img.shields.io/badge/Download-latest%20APK-0A84FF?style=for-the-badge&logo=android&logoColor=white" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-2f7de1?style=for-the-badge" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/Android-8%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white" />
@@ -14,6 +18,7 @@
 <p align="center">
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-features">Features</a> ·
+  <a href="#-meet-aubree">Meet Aubree</a> ·
   <a href="#-host-a-page">Host a page</a> ·
   <a href="#-coming-soon">Coming soon</a> ·
   <a href="#-support-and-feedback">Support</a> ·
@@ -35,6 +40,60 @@
   </tr>
 </table>
 
+## 🐶 Meet Aubree
+
+<table>
+  <tr>
+    <td width="30%" align="center"><img src="web/src/aubree/celebrate.webp" alt="Aubree celebrating" width="190" /></td>
+    <td>
+      <b>Aubree is DropLink's mascot.</b> She greets a device that asks to connect, waits with it while you approve, and celebrates when it joins. She also turns up on empty folders, errors, lost connections and low-power warnings, so every screen has a friendly face and a clear next step.<br /><br />
+      Aubree comes from <a href="https://github.com/trebronwayne/AubreeKit">AubreeKit</a>. In the app she is drawn with <code>aubree-compose</code>, and the web client uses the pictures in <a href="web/src/aubree"><code>web/src/aubree/</code></a>. People who prefer less motion see a still picture instead of the animation.
+    </td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center" width="25%">
+      <img src="web/src/aubree/welcome-still.webp" alt="Aubree, welcome" width="110" /><br />
+      <b>Welcome</b><br />
+      <sub>A device asks to connect</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="web/src/aubree/wait-still.webp" alt="Aubree, waiting" width="110" /><br />
+      <b>Waiting</b><br />
+      <sub>Waiting for you to approve</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="web/src/aubree/celebrate-still.webp" alt="Aubree, celebrating" width="110" /><br />
+      <b>Celebrating</b><br />
+      <sub>A device just joined</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="web/src/aubree/offline-still.webp" alt="Aubree, offline" width="110" /><br />
+      <b>Offline</b><br />
+      <sub>Can't reach the phone</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="25%">
+      <img src="web/src/aubree/empty-still.webp" alt="Aubree, empty" width="110" /><br />
+      <b>Empty</b><br />
+      <sub>Nothing in this folder yet</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="web/src/aubree/sad-still.webp" alt="Aubree, oops" width="110" /><br />
+      <b>Oops</b><br />
+      <sub>Something went wrong</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="web/src/aubree/sleepy-still.webp" alt="Aubree, sleepy" width="110" /><br />
+      <b>Sleepy</b><br />
+      <sub>Battery Saver may pause hosting</sub>
+    </td>
+  </tr>
+</table>
+
 ## ⚡ Quick start
 
 1. **Install** the APK from the [Releases](https://github.com/trebronwayne/DropLink/releases) page and open DropLink.
@@ -51,11 +110,12 @@
 |---|---|
 | 📁 **Share folders** | Pick folders with Android's own picker. Read-only, nothing is copied or uploaded. |
 | ⚡ **Fast browsing** | Folders open from a single storage query, are cached, and thumbnails load instead of full photos. |
-| 🎵 **Music and video that keep playing** | A persistent player with queue, shuffle, repeat, speed and lock-screen controls. Keep browsing while it plays. |
+| 🎵 **Music and video that keep playing** | A persistent player with queue (reorder and clear), shuffle, repeat, speed, sleep timer, resume where you left off and lock-screen controls. Keep browsing while it plays. |
 | 🔐 **Approval-based access** | New devices must be approved on the phone and can be revoked any time. Everything runs over HTTPS. |
 | 📱 **Connect by QR** | One code opens DropLink. An optional small code lets a phone join your hotspot without typing the password. |
 | 🌐 **Host a page** | Publish a website from a folder, with sign-in accounts and forms that send information to your phone. |
-| 🧩 **Installable web client** | Soft, modern neumorphic design with light and dark themes, favourites, recents and an offline-friendly shell. |
+| 🧩 **Installable web client** | A clean Fluent-style design with light and dark themes, accent colours, favourites, recents, "continue where you left off" and an offline-friendly shell. |
+| ♿ **Accessible by design** | Keyboard shortcuts, screen-reader labels, a skip link, focus that stays in pop-ups, text size, high contrast and reduce-motion settings. |
 | 🔄 **Reconnects by itself** | If the address changes, scan the new QR code from the "Can't reach the phone" screen. |
 | 🛡️ **Built to keep hosting** | Foreground service, wake and Wi-Fi locks, a self-checking watchdog, and a warning when Battery Saver would pause it. |
 | 🚀 **Speed test** | Measure the link between a device and the phone. |
@@ -124,12 +184,15 @@ cd web && npm install && npm run build && cd ..
 
 # 2. Android app
 gradle assembleDebug           # Gradle 8.11+, or open the folder in Android Studio and press Run
+gradle assembleRelease         # signed, shrunk release build (see below)
 ```
+
+**Release builds are shrunk with R8.** Code is minified and unused resources are removed, which makes the APK smaller. The rules live in [`app/proguard-rules.pro`](app/proguard-rules.pro). CI keeps each release's `mapping.txt` as a workflow artifact, so an obfuscated crash log can be turned back into real names (`retrace`). If a release build ever reports missing classes, add a `-dontwarn` line for them, or check `app/build/outputs/mapping/release/missing_rules.txt`.
 
 | Part | Technology |
 |---|---|
 | App and server | Kotlin, Jetpack Compose, Ktor (CIO), ZXing |
-| Web client | React, TypeScript, a hand-made neumorphic design system |
+| Web client | React, TypeScript, a hand-made Fluent-style design system |
 | Releases | GitHub Actions (signed, semantic versioning) |
 
 More in [`docs/`](docs): [architecture](docs/SYSTEM_ARCHITECTURE.md), [network protocol](docs/NETWORK_PROTOCOL.md), [service API](docs/SERVICE_API.md), [web client](docs/WEB_CLIENT.md), [performance](docs/PERFORMANCE.md) and [troubleshooting](docs/TROUBLESHOOTING.md).

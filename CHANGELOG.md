@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Release build
+- R8 code shrinking, optimisation and resource shrinking are on for release builds (`app/proguard-rules.pro`). CI stores `mapping.txt` for each signed release.
+
+### Web client redesign
+- Fluent-style look (flat surfaces, thin borders, one accent) with a neutral graphite dark theme and a paper-white light theme. Accents: Blue, Teal, Indigo, Green, Graphite.
+- Easier playback: resume where you left off, "Continue where you left off" on Home, sleep timer, queue reorder and clear, ±10 second buttons, saved speed and volume, more keyboard shortcuts (`?` shows them), toasts for quick feedback and an image zoom in the viewer.
+- Accessibility: skip link, landmarks, dialog focus handling, labelled controls, announced track changes, text size, high contrast, reduce motion, compact density, forced-colors support and larger touch targets.
+- README now introduces Aubree with her pictures.
+
 ### Aubree, the DropLink mascot
 - App: a first-run "Meet Aubree" welcome, small banner toasts (hosting on or off, someone wants to connect, a device joined, folder shared, connection test, Battery Saver, errors), a Home card that shows what the server is doing, and Aubree on empty screens, the pairing request, the problem report and the Battery Saver warning. Uses AubreeKit 1.0.0 from JitPack.
 - Web client: Aubree welcomes a device that asks to connect, waits with it for approval, celebrates when it is approved, and appears on the connecting, can't-reach-the-phone, error and empty screens. She shows as a still picture when the system asks for reduced motion.

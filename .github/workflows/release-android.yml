@@ -139,6 +139,14 @@ jobs:
             -PdroplinkVersionName="$VERSION_NAME" \
             -PdroplinkVersionCode="$VERSION_CODE"
 
+      - name: Keep the R8 mapping file
+        if: steps.signing.outputs.signed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-mapping-${{ steps.version.outputs.name }}
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+
       - name: Verify APK signature and prepare checksum
         id: artifact
         shell: bash
