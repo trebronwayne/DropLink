@@ -6,7 +6,7 @@
 - [ ] **Live camera**: use the phone as a CCTV camera.
 - [ ] **Remote presentation**: control slides on a big screen from the phone. Slides will be shown from PDF or image exports; native PowerPoint rendering is a much bigger job and is planned later.
 - [ ] **Send and receive files**: the operator sends to one, two or all connected users; recipients accept each file or turn on auto-accept. Users add their name on first visit.
-- [ ] **Uploads to the phone**: visitors upload only after the operator grants it, once or always.
+- [x] **Uploads to the phone**: paired devices send files only after the operator approves, once or always (per device). Files are saved in Downloads/DropLink.
 - [ ] **People**: see who is connected, and send them messages, files and attachments.
 - [ ] **Feedback**: visitors send feedback to the operator, who can reply.
 - [ ] **Richer device list**: more detail about each connected device.

@@ -28,6 +28,11 @@ import io.github.trebronwayne.droplink.core.HostingOptions
 import io.github.trebronwayne.droplink.core.NodeIdentity
 import io.github.trebronwayne.droplink.core.PairRequest
 import io.github.trebronwayne.droplink.core.Pairing
+import io.github.trebronwayne.droplink.core.ReceivedFile
+import io.github.trebronwayne.droplink.core.ReceivedFiles
+import io.github.trebronwayne.droplink.core.UploadRequest
+import io.github.trebronwayne.droplink.core.Uploads
+import io.github.trebronwayne.droplink.core.formatBytes
 import io.github.trebronwayne.droplink.core.ServerStats
 import io.github.trebronwayne.droplink.core.TlsIdentity
 import io.github.trebronwayne.droplink.server.DropLinkServer
@@ -108,6 +113,7 @@ class LocalServerService : Service() {
                 }
                 stage = "loading pairing data"
                 Pairing.init(applicationContext)
+                ReceivedFiles.init(applicationContext)
                 var tls: TlsIdentity.Material? = null
                 if (!useHttp) {
                     stage = "creating the security certificate"
@@ -134,6 +140,8 @@ class LocalServerService : Service() {
                     frontend = front
                 }
                 Pairing.onRequest = { request -> notifyPairing(request) }
+                Uploads.onRequest = { request -> notifyUploadRequest(request) }
+                Uploads.onBatchDone = { from, files -> notifyReceived(from, files) }
                 _hostingState.value = true
                 ServerStats.start()
                 acquireLocks()
@@ -174,8 +182,14 @@ class LocalServerService : Service() {
         io.github.trebronwayne.droplink.core.SiteHost.endAllSessions()
         Pairing.onRequest = null
         Pairing.clearRequests()
+        Uploads.onRequest = null
+        Uploads.onBatchDone = null
+        Uploads.clearAll()
         try { Discovery.stopAdvertising() } catch (_: Throwable) { }
-        getSystemService(NotificationManager::class.java).cancel(PAIRING_NOTIFICATION_ID)
+        getSystemService(NotificationManager::class.java).apply {
+            cancel(PAIRING_NOTIFICATION_ID)
+            cancel(UPLOAD_NOTIFICATION_ID)
+        }
         try { frontend?.stop() } catch (_: Throwable) { }
         frontend = null
         val engine = server
@@ -375,7 +389,8 @@ class LocalServerService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "DropLink hosting", NotificationManager.IMPORTANCE_LOW))
-            manager.createNotificationChannel(NotificationChannel(PAIRING_CHANNEL_ID, "Pairing requests", NotificationManager.IMPORTANCE_HIGH))
+            manager.createNotificationChannel(NotificationChannel(PAIRING_CHANNEL_ID, "Pairing and upload requests", NotificationManager.IMPORTANCE_HIGH))
+            manager.createNotificationChannel(NotificationChannel(RECEIVED_CHANNEL_ID, "Received files", NotificationManager.IMPORTANCE_DEFAULT))
         }
     }
 
@@ -394,6 +409,45 @@ class LocalServerService : Service() {
             .build()
         try {
             getSystemService(NotificationManager::class.java).notify(PAIRING_NOTIFICATION_ID, notification)
+        } catch (_: SecurityException) { }
+    }
+
+    /** Someone wants to send files. Like pairing, the answer is given inside the app, never from the lock screen. */
+    private fun notifyUploadRequest(request: UploadRequest) {
+        val openApp = PendingIntent.getActivity(
+            this, 4, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val count = request.files.size
+        val notification = NotificationCompat.Builder(this, PAIRING_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_droplink)
+            .setContentTitle("Files incoming")
+            .setContentText("${request.deviceName} wants to send $count file${if (count == 1) "" else "s"} (${formatBytes(request.totalBytes)}). Open DropLink to approve.")
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        try {
+            getSystemService(NotificationManager::class.java).notify(UPLOAD_NOTIFICATION_ID, notification)
+        } catch (_: SecurityException) { }
+    }
+
+    private fun notifyReceived(from: String, files: List<ReceivedFile>) {
+        val openApp = PendingIntent.getActivity(
+            this, 5, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val text = if (files.size == 1) "${files[0].name} from $from. Saved in ${ReceivedFiles.LOCATION}."
+        else "${files.size} files from $from. Saved in ${ReceivedFiles.LOCATION}."
+        val notification = NotificationCompat.Builder(this, RECEIVED_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_droplink)
+            .setContentTitle("Received ${if (files.size == 1) "a file" else "${files.size} files"}")
+            .setContentText(text)
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .build()
+        try {
+            getSystemService(NotificationManager::class.java).notify(RECEIVED_NOTIFICATION_ID, notification)
         } catch (_: SecurityException) { }
     }
 
@@ -450,6 +504,9 @@ class LocalServerService : Service() {
         private const val NOTIFICATION_ID = 47831
         private const val PAIRING_CHANNEL_ID = "droplink_pairing"
         private const val PAIRING_NOTIFICATION_ID = 47832
+        private const val UPLOAD_NOTIFICATION_ID = 47833
+        private const val RECEIVED_CHANNEL_ID = "droplink_received"
+        private const val RECEIVED_NOTIFICATION_ID = 47834
         private const val WATCHDOG_INTERVAL_MS = 10_000L
         private const val KEEPALIVE_MS = 4 * 60_000L
 

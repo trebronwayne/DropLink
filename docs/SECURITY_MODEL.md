@@ -24,6 +24,15 @@ Protect node identity, private files, camera/microphone access, internet gateway
 ## File access
 Use Android Storage Access Framework or narrowly scoped platform APIs. Do not request broad storage permissions unless a specific approved feature and current Android policy justify them. Share selected roots or documents, not the entire private filesystem.
 
+## Receiving files (uploads)
+Shared folders stay read-only. Files sent *to* the phone are a separate, opt-in path with these controls:
+1. Only paired devices (a valid session cookie) can ask. Each device has a policy set on the phone: **Ask** (default), **Always allow** or **Block**.
+2. With **Ask**, the device first sends only names and sizes. Nothing is stored until the phone's owner chooses **Approve once**, **Always approve from this device** or **Deny**, inside the app. The notification only opens the app; there are no approve buttons on the lock screen.
+3. An approval covers exactly the announced files. Each file can be sent once, its size must match what was announced, and the approval expires after 30 minutes. A pending request expires after 5 minutes.
+4. Limits: 50 files and 16 GB per request, 4 GB per file, 3 waiting requests and 10 requests a minute per device, and a free-space check. Names are cleaned (no folders, control characters or hidden names).
+5. Files are written as pending items and only become visible when every byte has arrived, so a dropped connection never leaves a half file. They are saved in `Downloads/DropLink` through MediaStore (no storage permission) and are never executed or opened by DropLink.
+6. Blocking a device denies its waiting requests, and revoking a device removes its session.
+
 ## Camera
 Camera service must be started by a visible user action, use required Android permissions and foreground-service declarations, show persistent/clear active state as required, and stop promptly when revoked.
 

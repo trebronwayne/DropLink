@@ -2,6 +2,7 @@ package io.github.trebronwayne.droplink
 
 import android.Manifest
 import android.content.ActivityNotFoundException
+import android.app.DownloadManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -29,6 +30,8 @@ import io.github.trebronwayne.droplink.core.NetworkAddresses
 import io.github.trebronwayne.droplink.core.NodeIdentity
 import io.github.trebronwayne.droplink.core.PairStatus
 import io.github.trebronwayne.droplink.core.Pairing
+import io.github.trebronwayne.droplink.core.ReceivedFiles
+import io.github.trebronwayne.droplink.core.Uploads
 import io.github.trebronwayne.droplink.core.SelfTest
 import io.github.trebronwayne.droplink.core.ServerStats
 import io.github.trebronwayne.droplink.core.SharedFolder
@@ -92,6 +95,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         Pairing.init(this)
+        ReceivedFiles.init(this)
         folders = SharedFolders.list(this)
         useHttp = HostingOptions.useHttp(this)
         diagnostics = CrashLog.read(this)
@@ -102,6 +106,8 @@ class MainActivity : ComponentActivity() {
                 val stats by ServerStats.state.collectAsStateWithLifecycle()
                 val requests by Pairing.requests.collectAsStateWithLifecycle()
                 val trusted by Pairing.trusted.collectAsStateWithLifecycle()
+                val uploads by Uploads.requests.collectAsStateWithLifecycle()
+                val received by ReceivedFiles.recent.collectAsStateWithLifecycle()
                 val nodes by Discovery.nodes.collectAsStateWithLifecycle()
                 LaunchedEffect(hosting, useHttp) { refreshAddresses() }
                 LaunchedEffect(error, hosting) {
@@ -174,7 +180,14 @@ class MainActivity : ComponentActivity() {
                     trusted = trusted,
                     onApprove = Pairing::approve,
                     onDeny = Pairing::deny,
-                    onRevoke = Pairing::revoke
+                    onRevoke = Pairing::revoke,
+                    uploads = uploads,
+                    received = received,
+                    onUploadApprove = Uploads::approve,
+                    onUploadDeny = Uploads::deny,
+                    onSetUploadPolicy = Uploads::setPolicy,
+                    onOpenDownloads = ::openDownloads,
+                    onClearReceived = ReceivedFiles::clear
                 )
                 val network = NetworkUi(nodes.filter { it.nodeId != nodeId }, ::openNode)
                 DropLinkApp(nodeId = nodeId, host = host, files = files, pairing = pairing, network = network)
@@ -250,6 +263,15 @@ class MainActivity : ComponentActivity() {
             addresses = withContext(Dispatchers.IO) {
                 NetworkAddresses.reachable()
             }
+        }
+    }
+
+    /** Opens the system Downloads screen, where received files are kept in the DropLink folder. */
+    private fun openDownloads() {
+        try {
+            startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+        } catch (_: Exception) {
+            // No Downloads app on this phone.
         }
     }
 

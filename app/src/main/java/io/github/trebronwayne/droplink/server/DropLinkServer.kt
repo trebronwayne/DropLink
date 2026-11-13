@@ -6,6 +6,11 @@ import android.os.ParcelFileDescriptor
 import io.github.trebronwayne.droplink.core.NetworkAddresses
 import io.github.trebronwayne.droplink.core.NodeIdentity
 import io.github.trebronwayne.droplink.core.Qr
+import io.github.trebronwayne.droplink.core.ReceivedFile
+import io.github.trebronwayne.droplink.core.ReceivedFiles
+import io.github.trebronwayne.droplink.core.TrustedDevice
+import io.github.trebronwayne.droplink.core.UploadCreateResult
+import io.github.trebronwayne.droplink.core.Uploads
 import io.github.trebronwayne.droplink.core.PairStatus
 import io.github.trebronwayne.droplink.core.Pairing
 import io.github.trebronwayne.droplink.core.ServerStats
@@ -23,6 +28,7 @@ import io.ktor.server.routing.*
 import io.ktor.utils.io.*
 import io.ktor.utils.io.pool.DefaultPool
 import io.ktor.utils.io.jvm.javaio.toByteReadChannel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -30,6 +36,7 @@ import org.json.JSONObject
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.OutputStream
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicBoolean
@@ -170,6 +177,117 @@ object DropLinkServer {
                     ServerStats.add(received)
                     val millis = (System.nanoTime() - started) / 1_000_000
                     call.json(HttpStatusCode.OK, JSONObject().put("bytes", received).put("millis", millis).toString())
+                }
+                // ---- Receiving files from paired devices (the phone's owner approves first) ----
+                get("/api/upload/info") {
+                    val device = call.device() ?: return@get
+                    call.response.header(HttpHeaders.CacheControl, "no-store")
+                    call.json(
+                        HttpStatusCode.OK,
+                        JSONObject().put("policy", device.uploads.key).put("maxFiles", Uploads.MAX_FILES)
+                            .put("maxFileBytes", Uploads.MAX_FILE_BYTES).put("maxTotalBytes", Uploads.MAX_TOTAL_BYTES).toString()
+                    )
+                }
+                post("/api/upload/request") {
+                    val device = call.device() ?: return@post
+                    val body = call.readJson(64 * 1024) ?: return@post
+                    val list = body.optJSONArray("files")
+                    if (list == null || list.length() == 0 || list.length() > Uploads.MAX_FILES) {
+                        call.json(HttpStatusCode.BadRequest, "{\"error\":\"bad_files\"}")
+                        return@post
+                    }
+                    val files = ArrayList<Pair<String, Long>>()
+                    for (i in 0 until list.length()) {
+                        val o = list.optJSONObject(i)
+                        if (o == null) {
+                            call.json(HttpStatusCode.BadRequest, "{\"error\":\"bad_files\"}")
+                            return@post
+                        }
+                        files += o.optString("name").take(300) to o.optLong("size", -1L)
+                    }
+                    val total = files.sumOf { it.second.coerceAtLeast(0L) }
+                    if (!ReceivedFiles.hasSpace(app, total)) {
+                        call.json(HttpStatusCode.InsufficientStorage, "{\"error\":\"no_space\"}")
+                        return@post
+                    }
+                    when (val result = Uploads.create(device, files)) {
+                        is UploadCreateResult.Created -> call.json(
+                            HttpStatusCode.OK,
+                            JSONObject().put("id", result.request.id).put("status", result.request.status.name.lowercase())
+                                .put("always", result.request.always).toString()
+                        )
+                        UploadCreateResult.Blocked -> call.json(HttpStatusCode.Forbidden, "{\"error\":\"uploads_blocked\"}")
+                        UploadCreateResult.TooMany -> call.json(HttpStatusCode.TooManyRequests, "{\"error\":\"too_many_requests\"}")
+                        is UploadCreateResult.Invalid -> call.json(
+                            if (result.reason == "bad_file_count") HttpStatusCode.BadRequest else HttpStatusCode.PayloadTooLarge,
+                            JSONObject().put("error", result.reason).toString()
+                        )
+                    }
+                }
+                get("/api/upload/status") {
+                    val device = call.device() ?: return@get
+                    val request = Uploads.find(call.request.queryParameters["id"].orEmpty(), device.id)
+                    call.response.header(HttpHeaders.CacheControl, "no-store")
+                    call.json(
+                        HttpStatusCode.OK,
+                        JSONObject().put("status", request?.status?.name?.lowercase() ?: "expired").put("always", request?.always ?: false).toString()
+                    )
+                }
+                post("/api/upload/cancel") {
+                    val device = call.device() ?: return@post
+                    Uploads.cancel(call.request.queryParameters["id"].orEmpty(), device.id)
+                    call.json(HttpStatusCode.OK, "{\"ok\":true}")
+                }
+                put("/api/upload/file") {
+                    val device = call.device() ?: return@put
+                    val id = call.request.queryParameters["id"].orEmpty()
+                    val index = call.request.queryParameters["index"]?.toIntOrNull() ?: -1
+                    val declared = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+                    if (declared == null) {
+                        call.json(HttpStatusCode.LengthRequired, "{\"error\":\"length_required\"}")
+                        return@put
+                    }
+                    val slot = Uploads.beginFile(id, device.id, index)
+                    if (slot == null) {
+                        call.json(HttpStatusCode.Forbidden, "{\"error\":\"not_approved\"}")
+                        return@put
+                    }
+                    if (declared != slot.spec.size) {
+                        Uploads.releaseFile(slot)
+                        call.json(HttpStatusCode.BadRequest, "{\"error\":\"size_mismatch\"}")
+                        return@put
+                    }
+                    val sink = withContext(Dispatchers.IO) { ReceivedFiles.open(app, slot.spec.name) }
+                    if (sink == null) {
+                        Uploads.releaseFile(slot)
+                        call.json(HttpStatusCode.InsufficientStorage, "{\"error\":\"cannot_save\"}")
+                        return@put
+                    }
+                    var saved = false
+                    ServerStats.begin()
+                    try {
+                        val received = withContext(Dispatchers.IO) { copyBody(call.receiveChannel(), sink.output, declared) }
+                        if (received == declared) {
+                            withContext(Dispatchers.IO) { sink.commit() }
+                            saved = true
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        saved = false
+                    } finally {
+                        ServerStats.end()
+                        if (!saved) {
+                            sink.abort()
+                            Uploads.releaseFile(slot)
+                        }
+                    }
+                    if (saved) {
+                        Uploads.completeFile(slot, ReceivedFile(sink.name, declared, device.name, System.currentTimeMillis()))
+                        call.json(HttpStatusCode.OK, JSONObject().put("saved", true).put("name", sink.name).toString())
+                    } else {
+                        call.json(HttpStatusCode.BadRequest, "{\"error\":\"incomplete\"}")
+                    }
                 }
                 get("/api/addresses") {
                     if (!call.authorized()) return@get
@@ -388,6 +506,43 @@ object DropLinkServer {
             return null
         }
         return out
+    }
+
+    /** Copies at most [expected] bytes of a request body into [out]. Returns how many arrived. */
+    private suspend fun copyBody(channel: ByteReadChannel, out: OutputStream, expected: Long): Long {
+        val buffer = ByteArray(256 * 1024)
+        var total = 0L
+        while (total < expected) {
+            val want = minOf(buffer.size.toLong(), expected - total).toInt()
+            val count = channel.readAvailable(buffer, 0, want)
+            if (count < 0) break
+            if (count == 0) continue
+            out.write(buffer, 0, count)
+            total += count
+            ServerStats.add(count.toLong())
+        }
+        return total
+    }
+
+    /** Reads a small JSON object. Answers the error itself and returns null if the body is unusable. */
+    private suspend fun ApplicationCall.readJson(maxBytes: Int): JSONObject? {
+        val declared = request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+        if (declared == null) { json(HttpStatusCode.LengthRequired, "{\"error\":\"length_required\"}"); return null }
+        if (declared > maxBytes) { json(HttpStatusCode.PayloadTooLarge, "{\"error\":\"too_large\"}"); return null }
+        return try {
+            JSONObject(receiveText())
+        } catch (_: Exception) {
+            json(HttpStatusCode.BadRequest, "{\"error\":\"bad_body\"}")
+            null
+        }
+    }
+
+    /** The paired device behind this request's session cookie. Answers 401 itself and returns null if there is none. */
+    private suspend fun ApplicationCall.device(): TrustedDevice? {
+        val device = request.cookies[COOKIE]?.let { Pairing.deviceFor(it) }
+        if (device != null) return device
+        json(HttpStatusCode.Unauthorized, "{\"error\":\"unauthorized\"}")
+        return null
     }
 
     private suspend fun ApplicationCall.authorized(): Boolean {

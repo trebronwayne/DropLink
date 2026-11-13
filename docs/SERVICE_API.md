@@ -50,4 +50,9 @@ HTTPS on port 47831. Every route except `/health`, `/api/pair/*` and static web 
 | GET | `/api/browse?share=<id>&path=<relative>` | Folder listing `[{name, isDir, size, mime, modified}]` |
 | GET | `/api/speedtest/down?mb=<1-200>` | Streams zero bytes for a download speed test (needs session) |
 | POST | `/api/speedtest/up` | Discards an uploaded body (max 200 MB) and returns `{bytes, millis}` (needs session) |
+| GET | `/api/upload/info` | This device's upload setting `{policy: ask\|always\|blocked, maxFiles, maxFileBytes, maxTotalBytes}` (needs session) |
+| POST | `/api/upload/request` | Body `{"files":[{"name","size"}]}`. Returns `{id, status: pending\|approved, always}`. 403 `uploads_blocked`, 429 `too_many_requests`, 413 `too_large`/`file_too_large`, 507 `no_space` (needs session) |
+| GET | `/api/upload/status?id=<id>` | `pending`, `approved`, `denied`, `expired` or `done` (needs session) |
+| PUT | `/api/upload/file?id=<id>&index=<n>` | Raw body of file `n` of an approved request. `Content-Length` must equal the announced size. Returns `{saved, name}`. 403 `not_approved` (not approved, already received or in progress) (needs session) |
+| POST | `/api/upload/cancel?id=<id>` | The sender gives up; the request stops accepting files (needs session) |
 | GET | `/api/file?share=<id>&path=<relative>[&download=1]` | File bytes, supports `Range`. HTML, SVG and script types are always sent as downloads |

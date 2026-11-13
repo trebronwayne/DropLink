@@ -147,3 +147,4 @@ export const ZoomInIcon = (p: IconProps) => <svg {...line(p)}><circle cx="11" cy
 export const ZoomOutIcon = (p: IconProps) => <svg {...line(p)}><circle cx="11" cy="11" r="6.500" /><path d="m20 20-4.200-4.200M8.500 11h5" /></svg>
 export const LinkIcon = (p: IconProps) => <svg {...line(p)}><path d="M10 14a4 4 0 0 0 5.700 0l3-3a4 4 0 0 0-5.700-5.700l-1 1M14 10a4 4 0 0 0-5.700 0l-3 3a4 4 0 0 0 5.700 5.700l1-1" /></svg>
 export const HelpIcon = (p: IconProps) => <svg {...line(p)}><circle cx="12" cy="12" r="8.500" /><path d="M9.700 9.500a2.400 2.400 0 1 1 3.400 2.200c-.7.400-1.100.900-1.100 1.800M12 17h.01" /></svg>
+export const UploadIcon = (p: IconProps) => <svg {...line(p)}><path d="M12 16V5m0 0-4 4m4-4 4 4M5 19h14" /></svg>

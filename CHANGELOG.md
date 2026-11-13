@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Receive files
+- Paired devices can now send files to the phone. The phone's owner approves each request once, approves always for that device, or denies it; a device can also be set to Ask, Always or Block in Settings, under Trusted devices.
+- Received files are saved in `Downloads/DropLink` (no storage permission needed) and listed under Transfers, with a notification when they arrive.
+- The web client has a Send files dialog with drag and drop, a waiting screen, per-file progress and retry. Press `U` to open it.
+
 ### Release build
 - R8 code shrinking, optimisation and resource shrinking are on for release builds (`app/proguard-rules.pro`). CI stores `mapping.txt` for each signed release.
 

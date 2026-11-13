@@ -3,7 +3,7 @@ import { api, AuthError, qrUrl, cachedBrowse, Entry, fileUrl, LockedError, Offli
 import {
   ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronRightIcon, ClockIcon, CloseIcon, DownloadIcon, FileTypeIcon, GaugeIcon, GridIcon,
   HelpIcon, HomeIcon, KeyboardIcon, ListIcon, Logo, OfflineIcon, PlayIcon, PlusIcon, QrIcon, RefreshIcon, SearchIcon, SettingsIcon, ShieldIcon, SortIcon, StarFillIcon, StarIcon,
-  ZoomInIcon, ZoomOutIcon
+  UploadIcon, ZoomInIcon, ZoomOutIcon
 } from './icons'
 import { Reconnect } from './Reconnect'
 import { Aubree, AubreeState } from './Aubree'
@@ -11,6 +11,7 @@ import { PlayerProvider, Track, usePlayer } from './player'
 import { ACCENTS, Display, getResume, load, Ref, save, ThemeMode, useDisplay, useFavorites, useRecents, useSetting, useTheme } from './prefs'
 import { ToastProvider, useToast } from './toast'
 import { useDialog } from './a11y'
+import { UploadDialog } from './upload'
 import { formatDate, formatSize, formatTime, Kind, kindOf, stripExt } from './util'
 
 type Route = { share: string; segments: string[] }
@@ -46,7 +47,7 @@ const SHORTCUTS: [string, string][] = [
   ['Space', 'Play or pause'], ['J  /  L', 'Back or forward 10 seconds'], ['←  /  →', 'Back or forward 5 seconds'],
   ['N  /  P', 'Next or previous track'], ['M', 'Mute or unmute'], ['↑  /  ↓', 'Volume (full player)'],
   ['F', 'Fullscreen video'], ['S  /  R', 'Shuffle / repeat'], ['>', 'Change playback speed'],
-  ['/', 'Filter this folder'], ['?', 'Show this list'], ['Esc', 'Close a window or the full player']
+  ['/', 'Filter this folder'], ['U', 'Send files to this phone'], ['?', 'Show this list'], ['Esc', 'Close a window or the full player']
 ]
 
 function ShortcutsDialog({ onClose }: { onClose: () => void }) {
@@ -534,10 +535,15 @@ function ContinueCards({ items }: { items: Ref[] }) {
   )
 }
 
-function Home({ shares, fav, recents }: { shares: Share[]; fav: ReturnType<typeof useFavorites>; recents: ReturnType<typeof useRecents> }) {
+function Home({ shares, fav, recents, onSend }: { shares: Share[]; fav: ReturnType<typeof useFavorites>; recents: ReturnType<typeof useRecents>; onSend: () => void }) {
   return (
     <>
       <ContinueCards items={recents.list} />
+      <div className="send-card nm-raised">
+        <Aubree state="welcome" size={72} />
+        <div className="send-card-text"><strong>Send files to this phone</strong><span className="muted small">Choose files, or drop them anywhere on this page. The phone asks its owner to approve first.</span></div>
+        <button className="nm-btn primary" onClick={onSend}><UploadIcon width={18} height={18} /> Send files</button>
+      </div>
       <h2 className="page-title">Shared folders</h2>
       {shares.length === 0 && (
         <div className="empty"><Aubree state="empty" size={140} /><h3>Nothing is shared yet</h3><p className="muted">On the phone, open Files and add a folder to share.</p></div>
@@ -728,6 +734,8 @@ function Shell() {
   const player = usePlayer()
   const disp = useDisplay()
   const [help, setHelp] = useState(false)
+  const [uploadFiles, setUploadFiles] = useState<File[] | null>(null)
+  const [dragging, setDragging] = useState(false)
   const [authed, setAuthed] = useState<boolean | null>(() => (load<Share[] | null>('shares', null) ? true : null))
   const [shares, setShares] = useState<Share[]>(() => load<Share[]>('shares', []))
   const [route, setRoute] = useState<Route>(parseHash())
@@ -771,6 +779,7 @@ function Shell() {
       if (/INPUT|SELECT|TEXTAREA/.test(t.tagName) || t.isContentEditable) return
       if (document.querySelector('[aria-modal="true"]')) return
       if (e.key === '?') { e.preventDefault(); setHelp(true); return }
+      if (e.key === 'u' || e.key === 'U') { e.preventDefault(); setUploadFiles([]); return }
       if (e.key === '/') { const box = document.querySelector<HTMLInputElement>('input[type="search"]'); if (box) { e.preventDefault(); box.focus() } return }
       if (!player.current) return
       const onControl = t.tagName === 'BUTTON' || t.tagName === 'A'
@@ -795,6 +804,34 @@ function Shell() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [player])
+
+  // Drop files anywhere on the page to send them to the phone.
+  useEffect(() => {
+    if (!authed) return
+    let depth = 0
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
+    const enter = (e: DragEvent) => { if (hasFiles(e)) { depth++; setDragging(true) } }
+    const over = (e: DragEvent) => { if (hasFiles(e)) e.preventDefault() }
+    const leave = (e: DragEvent) => { if (hasFiles(e)) { depth = Math.max(0, depth - 1); if (!depth) setDragging(false) } }
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      depth = 0
+      setDragging(false)
+      const files = Array.from(e.dataTransfer?.files ?? [])
+      if (files.length && !document.querySelector('[aria-modal="true"]')) setUploadFiles(files)
+    }
+    window.addEventListener('dragenter', enter)
+    window.addEventListener('dragover', over)
+    window.addEventListener('dragleave', leave)
+    window.addEventListener('drop', drop)
+    return () => {
+      window.removeEventListener('dragenter', enter)
+      window.removeEventListener('dragover', over)
+      window.removeEventListener('dragleave', leave)
+      window.removeEventListener('drop', drop)
+    }
+  }, [authed])
 
   // Page title and focus follow the route, so screen readers announce where you are.
   const firstRoute = useRef(true)
@@ -824,6 +861,7 @@ function Shell() {
         <span className="spacer" />
         {installEvent && !standalone && <button className="nm-btn sm" onClick={() => installEvent.prompt()}><DownloadIcon width={18} height={18} /> <span className="hide-narrow">Install app</span></button>}
         <button className="nm-btn sm" onClick={() => setConnect(true)}><QrIcon width={18} height={18} /> <span className="hide-narrow">Connect a device</span></button>
+        <button className="nm-btn sm" onClick={() => setUploadFiles([])} aria-label="Send files to this phone" title="Send files to this phone ( U )"><UploadIcon width={18} height={18} /> <span className="hide-narrow">Send files</span></button>
         <button className="icon-btn hide-narrow" onClick={() => setHelp(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts ( ? )"><HelpIcon /></button>
         <span className="secure small"><ShieldIcon width={16} height={16} /> <span className="hide-narrow">Connected securely</span></span>
       </header>
@@ -849,11 +887,15 @@ function Shell() {
             : page === 'favorites' ? <><h2 className="page-title">Favorites</h2><RefList items={fav.list} shares={shares} empty="Tap the star on any file or folder to keep it here." /></>
             : page === 'recent' ? <><h2 className="page-title">Recent</h2><RefList items={recents.list} shares={shares} empty="Files you open will appear here." onClear={recents.clear} /></>
             : current ? <Browser key={current.id} route={route} shareName={current.name} fav={fav} recents={recents} />
-            : <Home shares={shares} fav={fav} recents={recents} />}
+            : <Home shares={shares} fav={fav} recents={recents} onSend={() => setUploadFiles([])} />}
         </main>
       </div>
       {connect && <ConnectDialog onClose={() => setConnect(false)} />}
       {help && <ShortcutsDialog onClose={() => setHelp(false)} />}
+      {uploadFiles && <UploadDialog initialFiles={uploadFiles} onClose={() => setUploadFiles(null)} />}
+      {dragging && !uploadFiles && (
+        <div className="drop-overlay" aria-hidden="true"><Aubree state="welcome" size={110} /><strong>Drop files to send them to this phone</strong></div>
+      )}
       <nav className="tabbar nm-raised" aria-label="Quick navigation">
         {nav('#/', 'Home', <HomeIcon />, !route.share)}
         {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}

@@ -111,6 +111,7 @@
 | 📁 **Share folders** | Pick folders with Android's own picker. Read-only, nothing is copied or uploaded. |
 | ⚡ **Fast browsing** | Folders open from a single storage query, are cached, and thumbnails load instead of full photos. |
 | 🎵 **Music and video that keep playing** | A persistent player with queue (reorder and clear), shuffle, repeat, speed, sleep timer, resume where you left off and lock-screen controls. Keep browsing while it plays. |
+| 📥 **Receive files** | Paired devices can send files to the phone, but only after you approve: **once**, or **always** for that device (or block it). They are saved in `Downloads/DropLink`. |
 | 🔐 **Approval-based access** | New devices must be approved on the phone and can be revoked any time. Everything runs over HTTPS. |
 | 📱 **Connect by QR** | One code opens DropLink. An optional small code lets a phone join your hotspot without typing the password. |
 | 🌐 **Host a page** | Publish a website from a folder, with sign-in accounts and forms that send information to your phone. |
@@ -148,7 +149,6 @@ Read the [Host a page guide](docs/HOST_PAGE.md) and try the ready-made [sample s
 | 📹 **Live camera** | Use the phone as a CCTV camera. |
 | 🖥️ **Remote presentation** | Control slides on a big screen from the phone (PDF and image slides first; native PowerPoint rendering is a bigger project and comes later). |
 | 📤 **Send and receive files** | Send to one, two or everyone connected. Recipients accept, or turn on auto-accept. People add their name on first visit. |
-| 📥 **Uploads to the phone** | Visitors upload only after you grant it, once or always. |
 | 👥 **People** | See who is connected and send them messages, files and attachments. |
 | 💬 **Feedback** | Visitors send feedback to you, and you reply. |
 | 📋 **Richer device list** | More detail about every connected device. |

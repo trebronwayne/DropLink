@@ -9,7 +9,7 @@ information.
 ## The short version
 
 - DropLink has **no cloud service, no accounts with us, no ads, no analytics and no trackers**.
-- Your files are **not uploaded to us or to anyone else**. They are read from the phone only when a device you approved asks for them.
+- Your files are **not uploaded to us or to anyone else**. They are read from the phone only when a device you approved asks for them. Files other devices send *to* your phone are accepted only after you approve them, and are saved in the DropLink folder inside your Downloads.
 - Information travels **only between devices on your local network** (your hotspot or Wi-Fi).
 - Logs and crash reports stay **on your phone** unless **you** choose to email them.
 

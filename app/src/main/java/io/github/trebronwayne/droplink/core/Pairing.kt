@@ -14,8 +14,28 @@ enum class PairStatus { Pending, Approved, Denied, Expired }
 
 data class PairRequest(val id: String, val deviceName: String, val code: String, val createdAt: Long, val status: PairStatus)
 
+/** What the phone does when a paired device wants to send it files. */
+enum class UploadPolicy(val key: String) {
+    /** Every batch of files needs an answer on the phone: approve once, approve always, or deny. */
+    Ask("ask"),
+    /** Files from this device are accepted without asking. */
+    Always("always"),
+    /** This device can never send files. */
+    Blocked("blocked");
+
+    companion object {
+        fun from(key: String?): UploadPolicy = values().firstOrNull { it.key == key } ?: Ask
+    }
+}
+
 /** A paired device. Only a hash of its session token is stored, so the file cannot be used to impersonate it. */
-data class TrustedDevice(val id: String, val name: String, val tokenHash: String, val createdAt: Long)
+data class TrustedDevice(
+    val id: String,
+    val name: String,
+    val tokenHash: String,
+    val createdAt: Long,
+    val uploads: UploadPolicy = UploadPolicy.Ask
+)
 
 /**
  * Pairing and trust. A new device asks to connect, the phone owner approves it after comparing the confirmation
@@ -52,7 +72,10 @@ object Pairing {
                 val array = JSONArray(p.getString(KEY, "[]"))
                 for (i in 0 until array.length()) {
                     val o = array.getJSONObject(i)
-                    list += TrustedDevice(o.getString("id"), o.getString("name"), o.getString("hash"), o.getLong("created"))
+                    list += TrustedDevice(
+                        o.getString("id"), o.getString("name"), o.getString("hash"), o.getLong("created"),
+                        UploadPolicy.from(o.optString("uploads", "ask"))
+                    )
                 }
             } catch (_: Exception) { }
             setTrusted(list)
@@ -100,6 +123,21 @@ object Pairing {
 
     fun isAuthorized(token: String): Boolean = tokenHashes.contains(sha256(token))
 
+    /** The paired device a session token belongs to, or null if the token is unknown or was revoked. */
+    fun deviceFor(token: String): TrustedDevice? {
+        val hash = sha256(token)
+        return _trusted.value.firstOrNull { it.tokenHash == hash }
+    }
+
+    /** Changes what happens when this device sends files. Prefer [Uploads.setPolicy], which also settles waiting requests. */
+    fun setUploadPolicy(deviceId: String, policy: UploadPolicy) {
+        synchronized(lock) {
+            val list = _trusted.value.map { if (it.id == deviceId) it.copy(uploads = policy) else it }
+            setTrusted(list)
+            persist(list)
+        }
+    }
+
     fun revoke(deviceId: String) {
         synchronized(lock) {
             val list = _trusted.value.filter { it.id != deviceId }
@@ -136,7 +174,10 @@ object Pairing {
     private fun persist(list: List<TrustedDevice>) {
         val array = JSONArray()
         list.forEach {
-            array.put(JSONObject().put("id", it.id).put("name", it.name).put("hash", it.tokenHash).put("created", it.createdAt))
+            array.put(
+                JSONObject().put("id", it.id).put("name", it.name).put("hash", it.tokenHash).put("created", it.createdAt)
+                    .put("uploads", it.uploads.key)
+            )
         }
         prefs?.edit()?.putString(KEY, array.toString())?.apply()
     }

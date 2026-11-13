@@ -33,6 +33,48 @@ async function request(url: string, init?: RequestInit, retries = 3): Promise<Re
 
 const q = encodeURIComponent
 
+/* ---------- sending files to the phone ---------- */
+export type UploadPolicy = 'ask' | 'always' | 'blocked'
+export type UploadInfo = { policy: UploadPolicy; maxFiles: number; maxFileBytes: number; maxTotalBytes: number }
+export type UploadState = 'pending' | 'approved' | 'denied' | 'expired' | 'done'
+
+/** The phone said no, or could not take the file. `code` is a short machine-readable reason. */
+export class UploadError extends Error {
+  code: string
+  constructor(code: string, message?: string) { super(message ?? code); this.code = code }
+}
+
+async function uploadJson<T>(url: string, init?: RequestInit): Promise<T> {
+  let response: Response
+  try { response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init }) } catch { throw new OfflineError() }
+  if (response.status === 401) throw new AuthError()
+  let body: Record<string, unknown> = {}
+  try { body = await response.json() } catch { /* empty body */ }
+  if (!response.ok) throw new UploadError(String(body.error ?? 'failed'), `Request failed (${response.status})`)
+  return body as T
+}
+
+/** Sends one file as the raw request body. XMLHttpRequest is used because fetch cannot report upload progress. */
+export function sendFile(id: string, index: number, file: File, onProgress: (loaded: number) => void, signal: AbortSignal): Promise<{ name: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', `/api/upload/file?id=${q(id)}&index=${index}`)
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+    xhr.upload.onprogress = e => onProgress(e.loaded)
+    xhr.onload = () => {
+      let body: Record<string, unknown> = {}
+      try { body = JSON.parse(xhr.responseText) } catch { /* empty body */ }
+      if (xhr.status === 401) reject(new AuthError())
+      else if (xhr.status >= 200 && xhr.status < 300) resolve({ name: String(body.name ?? file.name) })
+      else reject(new UploadError(String(body.error ?? 'failed'), `Upload failed (${xhr.status})`))
+    }
+    xhr.onerror = () => reject(new OfflineError())
+    xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'))
+    signal.addEventListener('abort', () => xhr.abort(), { once: true })
+    xhr.send(file)
+  })
+}
+
 /* ---------- listing cache: instant paint from memory/session, then revalidate ---------- */
 type Cached = { at: number; data: Entry[] }
 const mem = new Map<string, Cached>()
@@ -95,6 +137,18 @@ export const api = {
   async preview(share: string, path: string): Promise<string> {
     const r = await request(fileUrl(share, path), { headers: { Range: 'bytes=0-204799' } })
     return r.text()
+  },
+  uploadInfo(): Promise<UploadInfo> {
+    return uploadJson<UploadInfo>('/api/upload/info')
+  },
+  uploadRequest(files: { name: string; size: number }[]): Promise<{ id: string; status: UploadState; always: boolean }> {
+    return uploadJson('/api/upload/request', { method: 'POST', body: JSON.stringify({ files }) })
+  },
+  uploadStatus(id: string): Promise<{ status: UploadState }> {
+    return uploadJson(`/api/upload/status?id=${q(id)}`)
+  },
+  uploadCancel(id: string): Promise<unknown> {
+    return uploadJson(`/api/upload/cancel?id=${q(id)}`, { method: 'POST' }).catch(() => undefined)
   },
   async ping(): Promise<boolean> {
     try { const r = await fetch('/health', { cache: 'no-store' }); return r.ok } catch { return false }
