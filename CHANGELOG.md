@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Support
+- A **Support DropLink on Ko-fi** button in the app's About card and in the web client's Settings opens https://ko-fi.com/nobertlamn. GitHub's Sponsor button on the repository points to the same page (`.github/FUNDING.yml`).
+
+### Notification sound
+- Pairing requests, incoming-file requests and received-file notifications now play the DropLink sound (`app/src/main/res/raw/droplink_notification.ogg`; the WAV and OGG sources are in `branding/sounds/`).
+- A **Notification sound** switch in Settings turns it off. Android fixes a channel's sound when it is created, so DropLink keeps a sound and a silent version of each channel and picks one from this switch. The hosting notification stays silent.
+
 ### Receive files
 - Paired devices can now send files to the phone. The phone's owner approves each request once, approves always for that device, or denies it; a device can also be set to Ask, Always or Block in Settings, under Trusted devices.
 - Received files are saved in `Downloads/DropLink` (no storage permission needed) and listed under Transfers, with a notification when they arrive.

@@ -526,4 +526,4 @@ kbd { min-width: 26px; padding: 2px 8px; text-align: center; border-radius: 6px;
 .send-card { display: flex; align-items: center; gap: 16px; padding: 14px 18px; margin: 18px 0 4px; flex-wrap: wrap; }
 .send-card-text { flex: 1 1 240px; min-width: 0; display: grid; gap: 2px; }
 .drop-overlay { position: fixed; inset: 0; z-index: 80; display: grid; align-content: center; justify-items: center; gap: 10px; background: color-mix(in srgb, var(--bg) 82%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); border: 3px dashed var(--accent); pointer-events: none; font-size: calc(18px * var(--ts, 1)); }
-
+a.nm-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }

@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, AuthError, qrUrl, cachedBrowse, Entry, fileUrl, LockedError, OfflineError, Share, thumbUrl } from './api'
 import {
   ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronRightIcon, ClockIcon, CloseIcon, DownloadIcon, FileTypeIcon, GaugeIcon, GridIcon,
-  HelpIcon, HomeIcon, KeyboardIcon, ListIcon, Logo, OfflineIcon, PlayIcon, PlusIcon, QrIcon, RefreshIcon, SearchIcon, SettingsIcon, ShieldIcon, SortIcon, StarFillIcon, StarIcon,
+  HeartIcon, HelpIcon, HomeIcon, KeyboardIcon, ListIcon, Logo, OfflineIcon, PlayIcon, PlusIcon, QrIcon, RefreshIcon, SearchIcon, SettingsIcon, ShieldIcon, SortIcon, StarFillIcon, StarIcon,
   UploadIcon, ZoomInIcon, ZoomOutIcon
 } from './icons'
 import { Reconnect } from './Reconnect'
@@ -620,6 +620,12 @@ function Settings({ theme, display, setDisplay, install, standalone, onShortcuts
         <section className="nm-raised card stack settings" aria-labelledby="set-play">
           <h3 id="set-play">Playback</h3>
           <Switch label="Resume where I left off" hint="Videos and long tracks continue from their last position." checked={resume} onChange={setResume} />
+        </section>
+
+        <section className="nm-raised card stack settings" aria-labelledby="set-support">
+          <h3 id="set-support">Support DropLink</h3>
+          <p className="muted small">DropLink is free and open source. If it is useful to you, you can support its development.</p>
+          <a className="nm-btn primary" href="https://ko-fi.com/nobertlamn" target="_blank" rel="noreferrer"><HeartIcon /> Support on Ko-fi</a>
         </section>
 
         <section className="nm-raised card stack settings" aria-labelledby="set-app">

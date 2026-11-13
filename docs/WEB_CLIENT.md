@@ -20,6 +20,8 @@ Playback: persistent player with queue (reorder, clear), shuffle, repeat, speed,
 
 Sending files to the phone: the **Send files** button (or the `U` key, or dropping files anywhere on the page) opens a dialog that asks the phone for approval and then uploads each file with progress. If the phone is set to "always allow" this device, the files go straight through.
 
+The Settings page also has a **Support DropLink** card with a link to the project's Ko-fi page.
+
 Accessibility and display (Settings): theme, accent colour, density, text size, reduce motion and high contrast. Dialogs trap focus, controls are labelled, and the page title and focus follow the route.
 
 Aubree, the mascot, lives in `web/src/Aubree.tsx`. Her pictures are in `web/src/aubree/` (animation plus a still for reduced motion) and are built into hashed files, so browsers cache them for good.

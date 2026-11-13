@@ -18,6 +18,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import io.github.trebronwayne.droplink.core.NotificationSound
 import androidx.core.content.ContextCompat
 import io.github.trebronwayne.droplink.MainActivity
 import io.github.trebronwayne.droplink.R
@@ -389,17 +390,32 @@ class LocalServerService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "DropLink hosting", NotificationManager.IMPORTANCE_LOW))
-            manager.createNotificationChannel(NotificationChannel(PAIRING_CHANNEL_ID, "Pairing and upload requests", NotificationManager.IMPORTANCE_HIGH))
-            manager.createNotificationChannel(NotificationChannel(RECEIVED_CHANNEL_ID, "Received files", NotificationManager.IMPORTANCE_DEFAULT))
+            // A channel's sound cannot be changed after it exists, so the "Notification sound" switch in Settings picks
+            // between a channel that plays the DropLink sound and an otherwise identical silent one.
+            manager.deleteNotificationChannel(LEGACY_PAIRING_CHANNEL_ID)
+            manager.deleteNotificationChannel(LEGACY_RECEIVED_CHANNEL_ID)
+            manager.createNotificationChannel(soundChannel(REQUESTS_SOUND_ID, "Requests (DropLink sound)", NotificationManager.IMPORTANCE_HIGH, true))
+            manager.createNotificationChannel(soundChannel(REQUESTS_QUIET_ID, "Requests (silent)", NotificationManager.IMPORTANCE_HIGH, false))
+            manager.createNotificationChannel(soundChannel(RECEIVED_SOUND_ID, "Received files (DropLink sound)", NotificationManager.IMPORTANCE_DEFAULT, true))
+            manager.createNotificationChannel(soundChannel(RECEIVED_QUIET_ID, "Received files (silent)", NotificationManager.IMPORTANCE_DEFAULT, false))
         }
     }
+
+    private fun soundChannel(id: String, name: String, importance: Int, withSound: Boolean): NotificationChannel =
+        NotificationChannel(id, name, importance).apply {
+            if (withSound) setSound(NotificationSound.uri(applicationContext), NotificationSound.attributes) else setSound(null, null)
+        }
+
+    private fun soundOn(): Boolean = HostingOptions.notificationSound(applicationContext)
+    private fun requestsChannelId(): String = if (soundOn()) REQUESTS_SOUND_ID else REQUESTS_QUIET_ID
+    private fun receivedChannelId(): String = if (soundOn()) RECEIVED_SOUND_ID else RECEIVED_QUIET_ID
 
     private fun notifyPairing(request: PairRequest) {
         val openApp = PendingIntent.getActivity(
             this, 2, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notification = NotificationCompat.Builder(this, PAIRING_CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, requestsChannelId())
             .setSmallIcon(R.drawable.ic_stat_droplink)
             .setContentTitle("Pairing request")
             .setContentText("${request.deviceName} wants to connect. Code ${request.code}. Open DropLink to approve.")
@@ -419,7 +435,7 @@ class LocalServerService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val count = request.files.size
-        val notification = NotificationCompat.Builder(this, PAIRING_CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, requestsChannelId())
             .setSmallIcon(R.drawable.ic_stat_droplink)
             .setContentTitle("Files incoming")
             .setContentText("${request.deviceName} wants to send $count file${if (count == 1) "" else "s"} (${formatBytes(request.totalBytes)}). Open DropLink to approve.")
@@ -439,7 +455,7 @@ class LocalServerService : Service() {
         )
         val text = if (files.size == 1) "${files[0].name} from $from. Saved in ${ReceivedFiles.LOCATION}."
         else "${files.size} files from $from. Saved in ${ReceivedFiles.LOCATION}."
-        val notification = NotificationCompat.Builder(this, RECEIVED_CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, receivedChannelId())
             .setSmallIcon(R.drawable.ic_stat_droplink)
             .setContentTitle("Received ${if (files.size == 1) "a file" else "${files.size} files"}")
             .setContentText(text)
@@ -502,10 +518,14 @@ class LocalServerService : Service() {
         const val ACTION_KEEPALIVE = "io.github.trebronwayne.droplink.KEEPALIVE"
         private const val CHANNEL_ID = "droplink_hosting"
         private const val NOTIFICATION_ID = 47831
-        private const val PAIRING_CHANNEL_ID = "droplink_pairing"
+        private const val LEGACY_PAIRING_CHANNEL_ID = "droplink_pairing"
+        private const val LEGACY_RECEIVED_CHANNEL_ID = "droplink_received"
+        private const val REQUESTS_SOUND_ID = "droplink_requests_sound"
+        private const val REQUESTS_QUIET_ID = "droplink_requests_quiet"
+        private const val RECEIVED_SOUND_ID = "droplink_received_sound"
+        private const val RECEIVED_QUIET_ID = "droplink_received_quiet"
         private const val PAIRING_NOTIFICATION_ID = 47832
         private const val UPLOAD_NOTIFICATION_ID = 47833
-        private const val RECEIVED_CHANNEL_ID = "droplink_received"
         private const val RECEIVED_NOTIFICATION_ID = 47834
         private const val WATCHDOG_INTERVAL_MS = 10_000L
         private const val KEEPALIVE_MS = 4 * 60_000L

@@ -10,6 +10,7 @@ import io.github.trebronwayne.droplink.BuildConfig
 /** Where people go for help, feedback and legal information. */
 object Support {
     const val EMAIL = "trebronwayne@gmail.com"
+    const val KOFI = "https://ko-fi.com/nobertlamn"
     const val REPO = "https://github.com/trebronwayne/DropLink"
     const val ISSUES = "$REPO/issues"
     const val PRIVACY = "$REPO/blob/main/PRIVACY.md"

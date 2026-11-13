@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.OpenInBrowser
@@ -130,7 +131,10 @@ data class HostUi(
     val onClearEvents: () -> Unit,
     val onTest: () -> Unit,
     val onOpenLocal: () -> Unit,
-    val onOpenBatterySettings: () -> Unit
+    val onOpenBatterySettings: () -> Unit,
+    /** Play the DropLink sound for notifications. */
+    val notificationSound: Boolean = true,
+    val onNotificationSoundChange: (Boolean) -> Unit = {}
 )
 
 data class PairingUi(
@@ -566,6 +570,16 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
         DropButton("Open battery settings", host.onOpenBatterySettings, style = DropButtonStyle.Secondary, icon = Icons.Outlined.Settings)
     }
     DropCard {
+        DropText("Notifications", style = type.subtitle)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                DropText("Notification sound", style = type.bodyStrong)
+                DropText("Play the DropLink sound for pairing requests, incoming files and received files. It follows your phone's notification volume and Do Not Disturb.", style = type.caption, color = secondary)
+            }
+            Switch(checked = host.notificationSound, onCheckedChange = host.onNotificationSoundChange)
+        }
+    }
+    DropCard {
         DropText("Connection mode", style = type.subtitle)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -624,6 +638,8 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
         DropText("About", style = type.subtitle)
         DropText("DropLink ${BuildConfig.VERSION_NAME}", style = type.body)
         DropText("Your phone. Your server. Your network.", style = type.caption, color = secondary)
+        DropText("DropLink is free and open source. If it is useful to you, you can support its development.", style = type.caption, color = secondary)
+        DropButton("Support DropLink on Ko-fi", { Support.openUrl(context, Support.KOFI) }, Modifier.fillMaxWidth(), DropButtonStyle.Primary, Icons.Outlined.FavoriteBorder)
         DropButton("Send feedback", { Support.email(context, "DropLink feedback", "") }, Modifier.fillMaxWidth(), DropButtonStyle.Secondary, Icons.Outlined.Email)
         DropButton("Report an issue on GitHub", { Support.openUrl(context, Support.ISSUES) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)
         DropButton("Privacy Policy", { Support.openUrl(context, Support.PRIVACY) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)

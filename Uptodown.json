@@ -1,0 +1,56 @@
+**App name** (30 characters or fewer)
+DropLink: Share Files Anywhere
+
+**Short description** (80 characters or fewer)
+Share files from your Android phone to any device's browser. No cloud, no cable.
+
+You could also use: "Turn your phone into a private file server for Windows, Mac, Linux and iPhone."
+
+**Full description** (2,842 characters; the limit is 4,000)
+
+DropLink turns your Android phone into a private file server for your own network. Open your music, videos, photos and documents on any other device (Windows PC, Mac, Linux, iPhone, iPad, Chromebook, another Android phone or a smart TV) straight from its web browser. Nothing to install on the other device, no cloud, no account, no cable.
+
+HOW IT WORKS
+1. Pick the folders you want to share.
+2. Tap Start hosting.
+3. On the other device, scan the QR code or open the address shown on your phone.
+4. Approve the new device on your phone. That's it.
+
+SHARE WITH ANY DEVICE
+• Works with Android, iOS and iPadOS, Windows, macOS, Linux, ChromeOS and more: if it has a modern browser, it can connect.
+• Browse your shared folders, preview photos, PDFs and text, and download anything with one tap.
+• Only your phone needs the app. Everyone else just uses a browser.
+
+MUSIC AND VIDEO THAT KEEP PLAYING
+• A built-in player with queue, shuffle, repeat, speed control and a sleep timer.
+• Picks up where you left off, and keeps playing while you browse other folders.
+• Lock-screen and notification controls on the connected device.
+
+SEND FILES TO YOUR PHONE
+• Connected devices can send files to your phone, but only after you approve: once, or always for a device you trust. You can block a device at any time.
+• Received files are saved in Downloads/DropLink.
+
+YOU STAY IN CONTROL
+• Folders are shared read-only. DropLink never copies or uploads them.
+• Every new device must be approved on your phone, and you can revoke it whenever you like.
+• Connections are encrypted with HTTPS and stay on your hotspot or Wi-Fi.
+• No ads, no analytics, no trackers, no accounts. Your files never touch our servers, because we don't have any.
+
+BUILT FOR EVERYDAY USE
+• Clean, fast web client with light and dark themes and your choice of accent colour.
+• Accessibility settings: keyboard shortcuts, screen-reader support, larger text, high contrast and reduced motion.
+• Reconnect easily if your phone's address changes.
+• Built to keep running in the background, with a warning if Battery Saver might pause it.
+• Built-in speed test to check your connection.
+• Optional: host a small website or form page from your phone.
+• Meet Aubree, the friendly mascot who guides you through each step.
+
+FREE AND OPEN SOURCE
+DropLink is free and open source under the Apache 2.0 licence. Read the code, report an issue or suggest an idea on GitHub: github.com/trebronwayne/DropLink
+
+GOOD TO KNOW
+• Your phone and the other device must be on the same network, for example your phone's hotspot or the same Wi-Fi.
+• Because the connection is encrypted with a certificate made on your phone, a browser may ask you to trust it the first time you connect.
+• Keep Battery Saver off while hosting so Android doesn't pause DropLink.
+
+Questions or feedback? trebronwayne@gmail.com

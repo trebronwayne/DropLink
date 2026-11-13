@@ -111,6 +111,7 @@
 | 📁 **Share folders** | Pick folders with Android's own picker. Read-only, nothing is copied or uploaded. |
 | ⚡ **Fast browsing** | Folders open from a single storage query, are cached, and thumbnails load instead of full photos. |
 | 🎵 **Music and video that keep playing** | A persistent player with queue (reorder and clear), shuffle, repeat, speed, sleep timer, resume where you left off and lock-screen controls. Keep browsing while it plays. |
+| 🔔 **Notification sound** | Requests and received files play the DropLink sound. One switch in Settings turns it off. |
 | 📥 **Receive files** | Paired devices can send files to the phone, but only after you approve: **once**, or **always** for that device (or block it). They are saved in `Downloads/DropLink`. |
 | 🔐 **Approval-based access** | New devices must be approved on the phone and can be revoked any time. Everything runs over HTTPS. |
 | 📱 **Connect by QR** | One code opens DropLink. An optional small code lets a phone join your hotspot without typing the password. |
@@ -202,6 +203,7 @@ More in [`docs/`](docs): [architecture](docs/SYSTEM_ARCHITECTURE.md), [network p
 - 🐞 **Found a bug or have an idea?** [Open an issue on GitHub](https://github.com/trebronwayne/DropLink/issues).
 - ✉️ **Feedback, or something went wrong?** Email **[trebronwayne@gmail.com](mailto:trebronwayne@gmail.com)**. In the app, *Settings → Hosting activity → Email log* (or the *Problem report* card) prepares the message for you. Nothing is sent unless you press send.
 - 🤝 **Want to help?** Pull requests are welcome. Please open an issue first for larger changes.
+- ☕ **Like DropLink?** You can support its development on [Ko-fi](https://ko-fi.com/nobertlamn). There is also a **Support DropLink on Ko-fi** button in the app, under About.
 
 ## 📄 License
 

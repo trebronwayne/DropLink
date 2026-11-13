@@ -29,6 +29,7 @@ import io.github.trebronwayne.droplink.core.HostingOptions
 import io.github.trebronwayne.droplink.core.NetworkAddresses
 import io.github.trebronwayne.droplink.core.NodeIdentity
 import io.github.trebronwayne.droplink.core.PairStatus
+import io.github.trebronwayne.droplink.core.NotificationSound
 import io.github.trebronwayne.droplink.core.Pairing
 import io.github.trebronwayne.droplink.core.ReceivedFiles
 import io.github.trebronwayne.droplink.core.Uploads
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private var addresses by mutableStateOf(emptyList<io.github.trebronwayne.droplink.core.HostAddress>())
     private var folders by mutableStateOf(emptyList<SharedFolder>())
     private var useHttp by mutableStateOf(false)
+    private var notificationSound by mutableStateOf(true)
     private var batterySaver by mutableStateOf(false)
     private var siteVersion by mutableStateOf(0)
     private var diagnostics by mutableStateOf("")
@@ -98,6 +100,7 @@ class MainActivity : ComponentActivity() {
         ReceivedFiles.init(this)
         folders = SharedFolders.list(this)
         useHttp = HostingOptions.useHttp(this)
+        notificationSound = HostingOptions.notificationSound(this)
         diagnostics = CrashLog.read(this)
         setContent {
             DropLinkTheme {
@@ -132,6 +135,12 @@ class MainActivity : ComponentActivity() {
                     onStart = ::requestStartHosting,
                     onStop = ::stopHostingService,
                     onRefresh = ::refreshAddresses,
+                    notificationSound = notificationSound,
+                    onNotificationSoundChange = { value ->
+                        HostingOptions.setNotificationSound(this, value)
+                        notificationSound = value
+                        if (value) NotificationSound.preview(this)
+                    },
                     onUseHttpChange = { value ->
                         HostingOptions.setUseHttp(this@MainActivity, value)
                         useHttp = value
