@@ -7,8 +7,17 @@ import java.security.SecureRandom
 
 enum class UploadStatus { Pending, Approved, Denied, Expired, Done }
 
-/** One file a device wants to send. The name is already cleaned; the size is what the device announced. */
-data class UploadFileSpec(val name: String, val size: Long)
+/**
+ * One file a device wants to send. The name is already cleaned; the size is what the device announced.
+ * [fingerprint] identifies the file (name, size, date) so a half-received copy can be continued later.
+ */
+data class UploadFileSpec(val name: String, val size: Long, val fingerprint: String = "")
+
+/** Where one incoming file stands. */
+enum class ReceiveState { Waiting, Receiving, Paused, Done }
+
+/** [bytes] already stored on the phone for that file, and what is happening with it. */
+data class ReceiveProgress(val bytes: Long, val state: ReceiveState)
 
 /**
  * A batch of files one paired device wants to send. It stays [UploadStatus.Pending] until the phone's owner answers,
@@ -37,8 +46,8 @@ sealed interface UploadCreateResult {
     class Invalid(val reason: String) : UploadCreateResult
 }
 
-/** One file of an approved request that a device may now send. */
-class UploadSlot(val request: UploadRequest, val index: Int, val spec: UploadFileSpec)
+/** One file of an approved request that a device may now send. [generation] lets a newer connection take over. */
+class UploadSlot(val request: UploadRequest, val index: Int, val spec: UploadFileSpec, val generation: Int)
 
 /**
  * Receiving files. A paired device describes the files it wants to send, the phone's owner approves once, approves
@@ -62,6 +71,8 @@ object Uploads {
 
     private class Progress(size: Int) {
         val states = IntArray(size)
+        val generation = IntArray(size)
+        val written = LongArray(size)
         val received = ArrayList<ReceivedFile>()
     }
 
@@ -70,9 +81,14 @@ object Uploads {
     private val progress = HashMap<String, Progress>()
     private val recentCreations = HashMap<String, ArrayDeque<Long>>()
     private val _requests = MutableStateFlow<List<UploadRequest>>(emptyList())
+    private val _live = MutableStateFlow<Map<String, ReceiveProgress>>(emptyMap())
+    @Volatile private var lastLive = 0L
 
     /** Requests the phone's owner can still act on or that are being received. */
     val requests: StateFlow<List<UploadRequest>> = _requests.asStateFlow()
+
+    /** Progress of every incoming file, keyed "requestId:index". */
+    val live: StateFlow<Map<String, ReceiveProgress>> = _live.asStateFlow()
 
     /** Called when a request needs an answer, so the service can raise a notification. */
     @Volatile var onRequest: ((UploadRequest) -> Unit)? = null
@@ -80,15 +96,15 @@ object Uploads {
     /** Called when every file of a request has been saved. */
     @Volatile var onBatchDone: ((String, List<ReceivedFile>) -> Unit)? = null
 
-    fun create(device: TrustedDevice, files: List<Pair<String, Long>>): UploadCreateResult {
+    fun create(device: TrustedDevice, files: List<Triple<String, Long, String>>): UploadCreateResult {
         if (device.uploads == UploadPolicy.Blocked) return UploadCreateResult.Blocked
         if (files.isEmpty() || files.size > MAX_FILES) return UploadCreateResult.Invalid("bad_file_count")
         var total = 0L
         val specs = ArrayList<UploadFileSpec>()
-        for ((rawName, size) in files) {
+        for ((rawName, size, fp) in files) {
             if (size < 0 || size > MAX_FILE_BYTES) return UploadCreateResult.Invalid("file_too_large")
             total += size
-            specs += UploadFileSpec(ReceivedFiles.cleanName(rawName), size)
+            specs += UploadFileSpec(ReceivedFiles.cleanName(rawName), size, fp.take(200))
         }
         if (total > MAX_TOTAL_BYTES) return UploadCreateResult.Invalid("too_large")
 
@@ -103,11 +119,17 @@ object Uploads {
             times.addLast(now)
             val auto = device.uploads == UploadPolicy.Always
             created = UploadRequest(
-                id = hex(16), deviceId = device.id, deviceName = device.name, files = specs, createdAt = now,
+                id = hex(16), deviceId = device.id, deviceName = device.label, files = specs, createdAt = now,
                 status = if (auto) UploadStatus.Approved else UploadStatus.Pending, always = auto
             )
-            progress[created.id] = Progress(specs.size)
+            val p = Progress(specs.size)
+            // Show what an earlier, interrupted attempt already stored.
+            specs.forEachIndexed { i, spec ->
+                p.written[i] = Partials.length(Partials.file(device.id, spec.fingerprint, created.id, i), spec.size)
+            }
+            progress[created.id] = p
             _requests.value = _requests.value + created
+            publishLive(force = true)
         }
         if (created.status == UploadStatus.Pending) {
             EventLog.add("${created.deviceName} asked to send ${created.files.size} file(s)")
@@ -188,22 +210,63 @@ object Uploads {
         }
     }
 
-    /** Reserves one file of an approved request. Returns null if it is not approved, already received, or being received. */
-    fun beginFile(id: String, deviceId: String, index: Int): UploadSlot? = synchronized(lock) {
+    /** The spec of one file of this device's request, and whether it has already been received. Null if unknown. */
+    fun specOf(id: String, deviceId: String, index: Int): Pair<UploadFileSpec, Boolean>? = synchronized(lock) {
         purge(System.currentTimeMillis())
+        val request = _requests.value.firstOrNull { it.id == id && it.deviceId == deviceId } ?: return@synchronized null
+        if (request.status != UploadStatus.Approved && request.status != UploadStatus.Done) return@synchronized null
+        val p = progress[id] ?: return@synchronized null
+        if (index < 0 || index >= request.files.size) return@synchronized null
+        request.files[index] to (p.states[index] == DONE)
+    }
+
+    /**
+     * Reserves one file of an approved request. Returns null if it is not approved or already received. If an older
+     * connection is still marked as writing (its device vanished without a goodbye), the new one takes over.
+     */
+    fun beginFile(id: String, deviceId: String, index: Int): UploadSlot? = synchronized(lock) {
+        val now = System.currentTimeMillis()
+        purge(now)
         val request = _requests.value.firstOrNull { it.id == id && it.deviceId == deviceId && it.status == UploadStatus.Approved }
             ?: return@synchronized null
         val p = progress[id] ?: return@synchronized null
-        if (index < 0 || index >= request.files.size || p.states[index] != IDLE) return@synchronized null
+        if (index < 0 || index >= request.files.size || p.states[index] == DONE) return@synchronized null
         p.states[index] = BUSY
-        UploadSlot(request, index, request.files[index])
+        p.generation[index]++
+        // Receiving counts as activity, so the approval does not run out in the middle of a big file.
+        _requests.value = _requests.value.map { if (it.id == id) it.copy(updatedAt = now) else it }
+        publishLive(force = true)
+        UploadSlot(request, index, request.files[index], p.generation[index])
     }
 
-    /** The file did not arrive (dropped connection, full storage): let the device try that file again. */
-    fun releaseFile(slot: UploadSlot) {
+    /** False once a newer connection has taken this file over: the older one must stop writing. */
+    fun isCurrent(slot: UploadSlot): Boolean = synchronized(lock) {
+        progress[slot.request.id]?.generation?.getOrNull(slot.index) == slot.generation
+    }
+
+    /** [bytes] of the file are now stored. Called often; the screen is refreshed a few times a second. */
+    fun report(slot: UploadSlot, bytes: Long) {
         synchronized(lock) {
             val p = progress[slot.request.id] ?: return
+            if (p.generation[slot.index] != slot.generation) return
+            p.written[slot.index] = bytes
+            val now = System.currentTimeMillis()
+            val r = _requests.value.firstOrNull { it.id == slot.request.id }
+            if (r != null && now - r.updatedAt > 60_000) {
+                _requests.value = _requests.value.map { if (it.id == r.id) it.copy(updatedAt = now) else it }
+            }
+            publishLive(force = false)
+        }
+    }
+
+    /** The file did not fully arrive (dropped connection, full storage). What arrived is kept; the device can continue. */
+    fun releaseFile(slot: UploadSlot, bytes: Long) {
+        synchronized(lock) {
+            val p = progress[slot.request.id] ?: return
+            if (p.generation[slot.index] != slot.generation) return
             if (p.states[slot.index] == BUSY) p.states[slot.index] = IDLE
+            p.written[slot.index] = bytes
+            publishLive(force = true)
         }
     }
 
@@ -213,6 +276,7 @@ object Uploads {
         synchronized(lock) {
             val p = progress[slot.request.id] ?: return
             p.states[slot.index] = DONE
+            p.written[slot.index] = slot.spec.size
             p.received += saved
             if (p.states.all { it == DONE }) {
                 val now = System.currentTimeMillis()
@@ -221,10 +285,32 @@ object Uploads {
                 }
                 finished = p.received.toList()
             }
+            publishLive(force = true)
         }
         ReceivedFiles.record(saved)
         EventLog.add("Received \"${saved.name}\" from ${saved.from}")
         finished?.let { onBatchDone?.invoke(saved.from, it) }
+    }
+
+    /** Call with [lock] held. */
+    private fun publishLive(force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastLive < 250) return
+        lastLive = now
+        val out = HashMap<String, ReceiveProgress>()
+        for (request in _requests.value) {
+            val p = progress[request.id] ?: continue
+            for (i in request.files.indices) {
+                val state = when {
+                    p.states[i] == DONE -> ReceiveState.Done
+                    p.states[i] == BUSY -> ReceiveState.Receiving
+                    p.written[i] > 0 -> ReceiveState.Paused
+                    else -> ReceiveState.Waiting
+                }
+                out["${request.id}:$i"] = ReceiveProgress(p.written[i], state)
+            }
+        }
+        _live.value = out
     }
 
     /** Called when hosting stops: nothing can be received any more. */
@@ -233,6 +319,7 @@ object Uploads {
             _requests.value = emptyList()
             progress.clear()
             recentCreations.clear()
+            _live.value = emptyMap()
         }
     }
 
@@ -247,6 +334,7 @@ object Uploads {
         if (keep.size != _requests.value.size) {
             _requests.value = keep
             progress.keys.retainAll(keep.map { it.id }.toSet())
+            publishLive(force = true)
         }
     }
 

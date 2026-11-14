@@ -82,6 +82,31 @@ export function UploadDialog({ initialFiles, onClose }: { initialFiles: File[]; 
     if (requestId.current) void api.uploadCancel(requestId.current)
   }, [])
 
+  /**
+   * Sends one file and, if the connection drops, asks the phone how much it already has and continues from there.
+   * The phone keeps the partial file, so nothing is sent twice, even after a long break or a fresh request.
+   */
+  const sendResumable = async (id: string, n: number, i: number, file: File, controller: AbortController) => {
+    let attempt = 0
+    for (;;) {
+      try {
+        const have = await api.uploadOffset(id, n)
+        if (have.done) return
+        if (have.offset > 0) update(cur => cur.map((it, k) => (k === i ? { ...it, sent: have.offset } : it)))
+        await sendFile(id, n, file, have.offset, loaded => update(cur => cur.map((it, k) => (k === i ? { ...it, sent: loaded } : it))), controller.signal)
+        return
+      } catch (e) {
+        if (cancelled.current) throw e
+        const retry = e instanceof OfflineError || (e instanceof UploadError && (e.code === 'incomplete' || e.code === 'offset_mismatch'))
+        if (!retry || attempt >= 15) throw e
+        attempt++
+        setNote('Connection lost. Waiting to resume where it stopped\u2026')
+        await sleep(Math.min(1000 * attempt, 8000))
+        if (cancelled.current) throw e
+      }
+    }
+  }
+
   const send = async () => {
     const list = itemsRef.current
     const indexes = list.map((_, i) => i).filter(i => list[i].state !== 'done')
@@ -95,7 +120,7 @@ export function UploadDialog({ initialFiles, onClose }: { initialFiles: File[]; 
     setDeadline(Date.now() + APPROVAL_WINDOW_MS)
     setNow(Date.now())
     try {
-      const created = await api.uploadRequest(indexes.map(i => ({ name: list[i].file.name, size: list[i].file.size })))
+      const created = await api.uploadRequest(indexes.map(i => ({ name: list[i].file.name, size: list[i].file.size, fp: fileKey(list[i].file) })))
       requestId.current = created.id
       let status = created.status
       while (status === 'pending') {
@@ -112,7 +137,8 @@ export function UploadDialog({ initialFiles, onClose }: { initialFiles: File[]; 
         if (cancelled.current) return
         update(cur => cur.map((it, k) => (k === i ? { ...it, state: 'sending', sent: 0 } : it)))
         try {
-          await sendFile(created.id, n, list[i].file, loaded => update(cur => cur.map((it, k) => (k === i ? { ...it, sent: loaded } : it))), controller.signal)
+          await sendResumable(created.id, n, i, list[i].file, controller)
+          setNote('')
           update(cur => cur.map((it, k) => (k === i ? { ...it, state: 'done', sent: it.file.size } : it)))
         } catch (e) {
           if (cancelled.current) return

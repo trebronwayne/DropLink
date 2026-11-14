@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Devices, sending files, resumable transfers
+- Web client restyled to match the app (same colours, pill buttons, rounded cards) and made more responsive: tablet and big-screen layouts, phone sheets, safe-area spacing, landscape phones.
+- New Devices screen in the app: each paired device shows who it is (name and model typed by the visitor, since browsers hide it), browser and system, when it was paired, and whether it is online or was seen recently. Visitors are asked for their name and device model when they connect, and once later if they paired before.
+- Send files from the phone: pick several files, send to everyone online or to chosen devices. Only devices that are online or were online in the last 10 minutes can be chosen. Devices see the files under "From the phone" and get a notice.
+- Resumable transfers: files sent to the phone continue where they stopped (the phone keeps the partial file, also across new requests), and downloads use stricter range validation (ETag, Last-Modified, If-Range) so a browser can resume them. The app shows per-file progress and status (waiting, receiving, paused, done) both ways.
+- Received files open with other apps: tap a file in Transfers.
+- Fixed the battery optimization row not opening: the one-tap dialog does nothing once DropLink is already allowed, so the full battery list (then app settings) opens instead.
+
 ### Softer app design
 - New calm look for the app in light and dark themes: rounded cards with hairline edges, pill buttons, a soft white (dark theme) or ink (light theme) main action color, and one small teal accent from the logo for icons, toggles and focus.
 - Settings are now organised into groups: This phone, Hosting, Trusted devices, Diagnostics, Roadmap and About. Long content (certificate fingerprint, hosting log, roadmap) folds away until opened. Upload permission per device is a Ask / Always / Block selector.

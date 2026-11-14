@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.trebronwayne.droplink.core.StatsSnapshot
 import io.github.trebronwayne.droplink.ui.theme.DropRadius
@@ -73,9 +74,13 @@ fun DropText(
     style: TextStyle = DropTheme.type.body,
     color: Color = DropTheme.colors.textPrimary,
     fontFamily: FontFamily? = null,
-    textAlign: TextAlign? = null
+    textAlign: TextAlign? = null,
+    maxLines: Int = Int.MAX_VALUE
 ) {
-    Text(text = text, modifier = modifier, color = color, style = style, fontFamily = fontFamily, textAlign = textAlign)
+    Text(
+        text = text, modifier = modifier, color = color, style = style, fontFamily = fontFamily, textAlign = textAlign,
+        maxLines = maxLines, overflow = if (maxLines == Int.MAX_VALUE) TextOverflow.Clip else TextOverflow.Ellipsis
+    )
 }
 
 /** Soft card: flat surface, a hairline edge and generous rounded corners. */

@@ -18,7 +18,7 @@ import java.io.FileOutputStream
 import java.io.OutputStream
 
 /** A file another device sent to this phone. */
-data class ReceivedFile(val name: String, val size: Long, val from: String, val at: Long)
+data class ReceivedFile(val name: String, val size: Long, val from: String, val at: Long, val uri: String = "")
 
 /**
  * Where one incoming file is being written. Call [commit] when every byte arrived, or [abort] to throw it away.
@@ -27,6 +27,8 @@ data class ReceivedFile(val name: String, val size: Long, val from: String, val 
 class ReceiveSink internal constructor(
     val name: String,
     val output: OutputStream,
+    /** Where the saved file can be opened from (a content:// address, or file:// on old Android). */
+    val uri: String,
     private val onCommit: () -> Unit,
     private val onAbort: () -> Unit
 ) {
@@ -64,7 +66,7 @@ object ReceivedFiles {
                 val array = JSONArray(p.getString(KEY, "[]"))
                 for (i in 0 until array.length()) {
                     val o = array.getJSONObject(i)
-                    list += ReceivedFile(o.getString("name"), o.getLong("size"), o.getString("from"), o.getLong("at"))
+                    list += ReceivedFile(o.getString("name"), o.getLong("size"), o.getString("from"), o.getLong("at"), o.optString("uri"))
                 }
             } catch (_: Exception) { }
             _recent.value = list
@@ -76,7 +78,7 @@ object ReceivedFiles {
             val list = (listOf(file) + _recent.value).take(KEEP)
             _recent.value = list
             val array = JSONArray()
-            list.forEach { array.put(JSONObject().put("name", it.name).put("size", it.size).put("from", it.from).put("at", it.at)) }
+            list.forEach { array.put(JSONObject().put("name", it.name).put("size", it.size).put("from", it.from).put("at", it.at).put("uri", it.uri)) }
             prefs?.edit()?.putString(KEY, array.toString())?.apply()
         }
     }
@@ -119,7 +121,25 @@ object ReceivedFiles {
         }
     }
 
-    private fun mimeFor(name: String): String {
+    /**
+     * Moves a fully received partial file into Downloads/DropLink. Returns null (and leaves the partial in place,
+     * so nothing is lost) if the phone cannot save it right now.
+     */
+    fun importFile(context: Context, source: File, name: String, from: String): ReceivedFile? {
+        val sink = open(context, name) ?: return null
+        return try {
+            val size = source.length()
+            source.inputStream().use { input -> input.copyTo(sink.output, 256 * 1024) }
+            sink.commit()
+            source.delete()
+            ReceivedFile(sink.name, size, from, System.currentTimeMillis(), sink.uri)
+        } catch (_: Exception) {
+            sink.abort()
+            null
+        }
+    }
+
+    fun mimeFor(name: String): String {
         val ext = name.substringAfterLast('.', "").lowercase()
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
     }
@@ -144,7 +164,7 @@ object ReceivedFiles {
             if (it.moveToFirst()) it.getString(0) else null
         } ?: name
         return ReceiveSink(
-            finalName, out,
+            finalName, out, uri.toString(),
             onCommit = {
                 try { out.close() } catch (_: Exception) { }
                 val done = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
@@ -164,7 +184,7 @@ object ReceivedFiles {
         val part = File(dir, target.name + ".part")
         val out = FileOutputStream(part)
         return ReceiveSink(
-            target.name, out,
+            target.name, out, android.net.Uri.fromFile(target).toString(),
             onCommit = {
                 out.close()
                 if (!part.renameTo(target)) {

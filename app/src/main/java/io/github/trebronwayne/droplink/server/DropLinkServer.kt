@@ -4,6 +4,11 @@ import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import io.github.trebronwayne.droplink.core.NetworkAddresses
+import io.github.trebronwayne.droplink.core.DeliveryState
+import io.github.trebronwayne.droplink.core.OutFile
+import io.github.trebronwayne.droplink.core.Outbox
+import io.github.trebronwayne.droplink.core.Partials
+import io.github.trebronwayne.droplink.core.Presence
 import io.github.trebronwayne.droplink.core.NodeIdentity
 import io.github.trebronwayne.droplink.core.Qr
 import io.github.trebronwayne.droplink.core.ReceivedFile
@@ -33,6 +38,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -62,8 +69,10 @@ object DropLinkServer {
                     call.json(HttpStatusCode.OK, "{\"service\":\"DropLink\",\"status\":\"online\",\"protocol\":3}")
                 }
                 post("/api/pair/request") {
-                    val name = try { JSONObject(call.receiveText()).optString("name") } catch (_: Exception) { "" }
-                    val request = Pairing.create(name)
+                    val body = try { JSONObject(call.receiveText()) } catch (_: Exception) { JSONObject() }
+                    val request = Pairing.create(
+                        body.optString("name"), body.optString("person"), body.optString("model"), body.optString("platform")
+                    )
                     if (request == null) {
                         call.json(HttpStatusCode.TooManyRequests, "{\"error\":\"too_many_requests\"}")
                     } else {
@@ -91,6 +100,62 @@ object DropLinkServer {
                         PairStatus.Denied -> call.json(HttpStatusCode.OK, "{\"status\":\"denied\"}")
                         else -> call.json(HttpStatusCode.OK, "{\"status\":\"expired\"}")
                     }
+                }
+                get("/api/device") {
+                    val device = call.device() ?: return@get
+                    call.response.header(HttpHeaders.CacheControl, "no-store")
+                    call.json(
+                        HttpStatusCode.OK,
+                        JSONObject().put("id", device.id).put("name", device.name).put("person", device.person)
+                            .put("model", device.model).put("platform", device.platform).toString()
+                    )
+                }
+                post("/api/device/info") {
+                    val device = call.device() ?: return@post
+                    val body = call.readJson(4 * 1024) ?: return@post
+                    Pairing.updateInfo(device.id, body.optString("person"), body.optString("model"))
+                    call.json(HttpStatusCode.OK, "{\"ok\":true}")
+                }
+                // ---- Files the phone's owner chose to send to this device ----
+                get("/api/inbox") {
+                    val device = call.device() ?: return@get
+                    val batches = Outbox.batchesFor(device.id)
+                    val array = JSONArray()
+                    batches.forEach { b ->
+                        val files = JSONArray()
+                        b.files.forEach { f ->
+                            val d = b.delivery(device.id, f.index)
+                            files.put(
+                                JSONObject().put("index", f.index).put("name", f.name).put("size", f.size).put("mime", f.mime)
+                                    .put("bytes", d.bytes).put("state", d.state.name.lowercase())
+                            )
+                        }
+                        array.put(JSONObject().put("id", b.id).put("createdAt", b.createdAt).put("files", files))
+                    }
+                    call.response.header(HttpHeaders.CacheControl, "no-store")
+                    call.json(HttpStatusCode.OK, JSONObject().put("items", array).toString())
+                }
+                get("/api/inbox/file") {
+                    val device = call.device() ?: return@get
+                    val batch = call.request.queryParameters["batch"].orEmpty()
+                    val index = call.request.queryParameters["index"]?.toIntOrNull() ?: -1
+                    val out = Outbox.file(batch, device.id, index)
+                    if (out == null) {
+                        call.json(HttpStatusCode.NotFound, "{\"error\":\"not_found\"}")
+                        return@get
+                    }
+                    val modified = withContext(Dispatchers.IO) { lastModifiedOf(app, out) }
+                    val type = try { ContentType.parse(out.mime.ifEmpty { ContentType.defaultForFilePath(out.name).toString() }) } catch (_: Exception) { ContentType.Application.OctetStream }
+                    val ascii = out.name.replace(Regex("[^\\x20-\\x7E]|[\"\\\\]"), "_")
+                    val encoded = URLEncoder.encode(out.name, "UTF-8").replace("+", "%20")
+                    call.response.header(HttpHeaders.ContentDisposition, "attachment; filename=\"$ascii\"; filename*=UTF-8''$encoded")
+                    call.response.header(HttpHeaders.AcceptRanges, "bytes")
+                    call.response.header(HttpHeaders.CacheControl, "no-cache")
+                    call.response.header("X-Content-Type-Options", "nosniff")
+                    call.respondRange(
+                        app, Uri.parse(out.uri), out.size, modified, type, Outbox.serve(batch, device.id, out),
+                        etagOf = "\"${batch}-${out.index}-${out.size}\""
+                    )
                 }
                 get("/api/info") {
                     if (!call.authorized()) return@get
@@ -148,11 +213,11 @@ object DropLinkServer {
                         "${if (showInline) "inline" else "attachment"}; filename=\"$ascii\"; filename*=UTF-8''$encoded"
                     )
                     call.response.header(HttpHeaders.AcceptRanges, "bytes")
-                    call.response.header(HttpHeaders.CacheControl, "private, max-age=3600")
-                    call.response.header(HttpHeaders.ETag, "\"${file.size}-${file.modified}\"")
+                    // A download is always revalidated, so a resumed one never splices two different versions of a file.
+                    call.response.header(HttpHeaders.CacheControl, if (download) "private, no-cache" else "private, max-age=3600")
                     call.response.header("X-Content-Type-Options", "nosniff")
 
-                    call.respondRange(app, file, type)
+                    call.respondRange(app, file.uri, file.size, file.modified, type, null, etagOf = "\"${file.size}-${file.modified}\"")
                 }
                 get("/api/speedtest/down") {
                     if (!call.authorized()) return@get
@@ -196,14 +261,14 @@ object DropLinkServer {
                         call.json(HttpStatusCode.BadRequest, "{\"error\":\"bad_files\"}")
                         return@post
                     }
-                    val files = ArrayList<Pair<String, Long>>()
+                    val files = ArrayList<Triple<String, Long, String>>()
                     for (i in 0 until list.length()) {
                         val o = list.optJSONObject(i)
                         if (o == null) {
                             call.json(HttpStatusCode.BadRequest, "{\"error\":\"bad_files\"}")
                             return@post
                         }
-                        files += o.optString("name").take(300) to o.optLong("size", -1L)
+                        files += Triple(o.optString("name").take(300), o.optLong("size", -1L), o.optString("fp").take(200))
                     }
                     val total = files.sumOf { it.second.coerceAtLeast(0L) }
                     if (!ReceivedFiles.hasSpace(app, total)) {
@@ -238,6 +303,22 @@ object DropLinkServer {
                     Uploads.cancel(call.request.queryParameters["id"].orEmpty(), device.id)
                     call.json(HttpStatusCode.OK, "{\"ok\":true}")
                 }
+                get("/api/upload/offset") {
+                    val device = call.device() ?: return@get
+                    val id = call.request.queryParameters["id"].orEmpty()
+                    val index = call.request.queryParameters["index"]?.toIntOrNull() ?: -1
+                    val found = Uploads.specOf(id, device.id, index)
+                    if (found == null) {
+                        call.json(HttpStatusCode.Forbidden, "{\"error\":\"not_approved\"}")
+                        return@get
+                    }
+                    val (spec, done) = found
+                    val offset = if (done) spec.size else Partials.length(Partials.file(device.id, spec.fingerprint, id, index), spec.size)
+                    call.response.header(HttpHeaders.CacheControl, "no-store")
+                    call.json(HttpStatusCode.OK, JSONObject().put("offset", offset).put("done", done).toString())
+                }
+                // One file, sent as the raw body. X-Upload-Offset says where in the file the body starts, so an
+                // interrupted upload continues where it stopped instead of starting over.
                 put("/api/upload/file") {
                     val device = call.device() ?: return@put
                     val id = call.request.queryParameters["id"].orEmpty()
@@ -252,42 +333,60 @@ object DropLinkServer {
                         call.json(HttpStatusCode.Forbidden, "{\"error\":\"not_approved\"}")
                         return@put
                     }
-                    if (declared != slot.spec.size) {
-                        Uploads.releaseFile(slot)
+                    val size = slot.spec.size
+                    val offset = call.request.headers["X-Upload-Offset"]?.toLongOrNull() ?: 0L
+                    val part = Partials.file(device.id, slot.spec.fingerprint, id, index)
+                    val have = Partials.length(part, size)
+                    if (part == null || offset != have) {
+                        Uploads.releaseFile(slot, have)
+                        call.json(HttpStatusCode.Conflict, JSONObject().put("error", "offset_mismatch").put("offset", have).toString())
+                        return@put
+                    }
+                    if (declared != size - offset) {
+                        Uploads.releaseFile(slot, have)
                         call.json(HttpStatusCode.BadRequest, "{\"error\":\"size_mismatch\"}")
                         return@put
                     }
-                    val sink = withContext(Dispatchers.IO) { ReceivedFiles.open(app, slot.spec.name) }
-                    if (sink == null) {
-                        Uploads.releaseFile(slot)
+                    if (size - offset > 0 && !ReceivedFiles.hasSpace(app, size - offset)) {
+                        Uploads.releaseFile(slot, have)
+                        call.json(HttpStatusCode.InsufficientStorage, "{\"error\":\"no_space\"}")
+                        return@put
+                    }
+                    var stored = have
+                    ServerStats.begin()
+                    try {
+                        stored = withContext(Dispatchers.IO) {
+                            FileOutputStream(part, offset > 0).use { out ->
+                                val received = copyBody(call.receiveChannel(), out, declared) { n ->
+                                    Uploads.report(slot, offset + n)
+                                    Uploads.isCurrent(slot)
+                                }
+                                out.flush()
+                                offset + received
+                            }
+                        }
+                    } catch (e: CancellationException) {
+                        // The device went away mid-file. What arrived stays, so it can continue later.
+                        Uploads.releaseFile(slot, Partials.length(part, size))
+                        throw e
+                    } catch (_: Exception) {
+                        stored = Partials.length(part, size)
+                    } finally {
+                        ServerStats.end()
+                    }
+                    if (stored != size) {
+                        Uploads.releaseFile(slot, stored)
+                        call.json(HttpStatusCode.BadRequest, JSONObject().put("error", "incomplete").put("offset", stored).toString())
+                        return@put
+                    }
+                    val saved = withContext(Dispatchers.IO) { ReceivedFiles.importFile(app, part, slot.spec.name, device.label) }
+                    if (saved == null) {
+                        Uploads.releaseFile(slot, stored)
                         call.json(HttpStatusCode.InsufficientStorage, "{\"error\":\"cannot_save\"}")
                         return@put
                     }
-                    var saved = false
-                    ServerStats.begin()
-                    try {
-                        val received = withContext(Dispatchers.IO) { copyBody(call.receiveChannel(), sink.output, declared) }
-                        if (received == declared) {
-                            withContext(Dispatchers.IO) { sink.commit() }
-                            saved = true
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        saved = false
-                    } finally {
-                        ServerStats.end()
-                        if (!saved) {
-                            sink.abort()
-                            Uploads.releaseFile(slot)
-                        }
-                    }
-                    if (saved) {
-                        Uploads.completeFile(slot, ReceivedFile(sink.name, declared, device.name, System.currentTimeMillis()))
-                        call.json(HttpStatusCode.OK, JSONObject().put("saved", true).put("name", sink.name).toString())
-                    } else {
-                        call.json(HttpStatusCode.BadRequest, "{\"error\":\"incomplete\"}")
-                    }
+                    Uploads.completeFile(slot, saved)
+                    call.json(HttpStatusCode.OK, JSONObject().put("saved", true).put("name", saved.name).toString())
                 }
                 get("/api/addresses") {
                     if (!call.authorized()) return@get
@@ -330,7 +429,6 @@ object DropLinkServer {
                     }
                     if (found.isDir) { call.respondRedirect("/site/$rel/"); return@get }
                     val etag = "\"${found.size}-${found.modified}\""
-                    call.response.header(HttpHeaders.ETag, etag)
                     call.response.header(HttpHeaders.CacheControl, "no-cache")
                     call.response.header("X-Content-Type-Options", "nosniff")
                     call.response.header("Referrer-Policy", "same-origin")
@@ -339,7 +437,7 @@ object DropLinkServer {
                     if (type == ContentType.Application.OctetStream && found.mime.isNotEmpty()) type = try { ContentType.parse(found.mime) } catch (_: Exception) { type }
                     if (type.contentType == "text") type = type.withCharset(Charsets.UTF_8)
                     call.response.header(HttpHeaders.AcceptRanges, "bytes")
-                    call.respondRange(app, found, type)
+                    call.respondRange(app, found.uri, found.size, found.modified, type, null, etagOf = etag)
                 }
                 get("/site-api/me") {
                     if (!call.siteGate(app, api = true)) return@get
@@ -429,12 +527,32 @@ object DropLinkServer {
     private fun staticType(rel: String): ContentType =
         if (rel.endsWith(".webp")) ContentType.parse("image/webp") else ContentType.defaultForFilePath(rel)
 
-    private suspend fun ApplicationCall.respondRange(app: Context, file: io.github.trebronwayne.droplink.core.DocEntry, type: ContentType) {
-        val length = file.size
+    private fun httpDate(millis: Long): String =
+        java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", java.util.Locale.US)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("GMT") }.format(java.util.Date(millis))
+
+    /** When a picked document was last changed, or 0 if Android does not say. Used so resumed downloads can be checked. */
+    private fun lastModifiedOf(app: Context, file: OutFile): Long = try {
+        app.contentResolver.query(Uri.parse(file.uri), arrayOf(android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED), null, null, null)
+            ?.use { if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else 0L } ?: 0L
+    } catch (_: Exception) { 0L }
+
+    /**
+     * Answers with the whole file or the requested byte range. Ranges make seeking in audio and video work, and let a
+     * download that was interrupted continue where it stopped. The validators (ETag, Last-Modified, If-Range) make
+     * sure a resumed download only continues if the file is still exactly the same.
+     */
+    private suspend fun ApplicationCall.respondRange(
+        app: Context, uri: Uri, length: Long, modified: Long, type: ContentType, serve: Outbox.Serve?, etagOf: String
+    ) {
+        response.header(HttpHeaders.ETag, etagOf)
+        if (modified > 0) response.header(HttpHeaders.LastModified, httpDate(modified))
         var start = 0L
         var end = length - 1
         var partial = false
-        val range = request.headers[HttpHeaders.Range]
+        var range = request.headers[HttpHeaders.Range]
+        val ifRange = request.headers[HttpHeaders.IfRange]
+        if (ifRange != null && ifRange != etagOf && (modified <= 0 || ifRange != httpDate(modified))) range = null
         if (length > 0 && range != null && range.startsWith("bytes=") && !range.contains(',')) {
             val parts = range.removePrefix("bytes=").trim().split('-')
             val a = parts.getOrNull(0)?.toLongOrNull()
@@ -455,9 +573,10 @@ object DropLinkServer {
         }
         if (partial) response.header(HttpHeaders.ContentRange, "bytes $start-$end/$length")
         val count = if (length == 0L) 0L else end - start + 1
+        if (count == 0L) serve?.finish(start)
         respond(
             if (partial) HttpStatusCode.PartialContent else HttpStatusCode.OK,
-            DocumentContent(app, file.uri, start, count, type)
+            DocumentContent(app, uri, start, count, type, serve)
         )
     }
 
@@ -508,8 +627,11 @@ object DropLinkServer {
         return out
     }
 
-    /** Copies at most [expected] bytes of a request body into [out]. Returns how many arrived. */
-    private suspend fun copyBody(channel: ByteReadChannel, out: OutputStream, expected: Long): Long {
+    /**
+     * Copies at most [expected] bytes of a request body into [out]. Returns how many arrived. [onBytes] gets the running
+     * total and returns false to stop (a newer connection took this file over).
+     */
+    private suspend fun copyBody(channel: ByteReadChannel, out: OutputStream, expected: Long, onBytes: (Long) -> Boolean = { true }): Long {
         val buffer = ByteArray(256 * 1024)
         var total = 0L
         while (total < expected) {
@@ -520,6 +642,7 @@ object DropLinkServer {
             out.write(buffer, 0, count)
             total += count
             ServerStats.add(count.toLong())
+            if (!onBytes(total)) break
         }
         return total
     }
@@ -540,14 +663,21 @@ object DropLinkServer {
     /** The paired device behind this request's session cookie. Answers 401 itself and returns null if there is none. */
     private suspend fun ApplicationCall.device(): TrustedDevice? {
         val device = request.cookies[COOKIE]?.let { Pairing.deviceFor(it) }
-        if (device != null) return device
+        if (device != null) {
+            Presence.touch(device.id)
+            return device
+        }
         json(HttpStatusCode.Unauthorized, "{\"error\":\"unauthorized\"}")
         return null
     }
 
     private suspend fun ApplicationCall.authorized(): Boolean {
         val token = request.cookies[COOKIE]
-        if (token != null && Pairing.isAuthorized(token)) return true
+        val known = token?.let { Pairing.deviceFor(it) }
+        if (known != null) {
+            Presence.touch(known.id)
+            return true
+        }
         json(HttpStatusCode.Unauthorized, "{\"error\":\"unauthorized\"}")
         return false
     }
@@ -564,7 +694,8 @@ private class DocumentContent(
     private val uri: Uri,
     private val start: Long,
     private val count: Long,
-    private val type: ContentType
+    private val type: ContentType,
+    private val serve: Outbox.Serve? = null
 ) : OutgoingContent.ReadChannelContent() {
     override val contentType: ContentType? = type
     override val contentLength: Long? = count
@@ -576,8 +707,15 @@ private class DocumentContent(
         if (start > 0) {
             try { input.channel.position(start) } catch (_: Exception) { input.skip(start) }
         }
-        return LimitedInputStream(input, count).toByteReadChannel(Dispatchers.IO, BigBufferPool)
+        val tracked = if (serve == null) null else LimitedProgress(start, serve)
+        return LimitedInputStream(input, count, tracked).toByteReadChannel(Dispatchers.IO, BigBufferPool)
     }
+}
+
+/** Reports how far into a file a device has been served, so the owner sees progress and interruptions. */
+private class LimitedProgress(private val start: Long, private val serve: Outbox.Serve) {
+    fun advance(served: Long) = serve.advance(start + served)
+    fun finish(served: Long) = serve.finish(start + served)
 }
 
 private class StreamContent(
@@ -602,8 +740,13 @@ private object ZeroSource : InputStream() {
 }
 
 /** Limits a stream to a byte count and reports progress to the live server statistics. */
-private class LimitedInputStream(source: InputStream, private var remaining: Long) : FilterInputStream(source) {
+private class LimitedInputStream(
+    source: InputStream,
+    private var remaining: Long,
+    private val tracker: LimitedProgress? = null
+) : FilterInputStream(source) {
     private val closed = AtomicBoolean(false)
+    private var served = 0L
 
     init {
         ServerStats.begin()
@@ -614,6 +757,7 @@ private class LimitedInputStream(source: InputStream, private var remaining: Lon
         val b = super.read()
         if (b >= 0) {
             remaining--
+            served++
             ServerStats.add(1)
         }
         return b
@@ -624,7 +768,9 @@ private class LimitedInputStream(source: InputStream, private var remaining: Lon
         val n = super.read(buffer, off, minOf(len.toLong(), remaining).toInt())
         if (n > 0) {
             remaining -= n
+            served += n
             ServerStats.add(n.toLong())
+            tracker?.advance(served)
         }
         return n
     }
@@ -633,7 +779,10 @@ private class LimitedInputStream(source: InputStream, private var remaining: Lon
         try {
             super.close()
         } finally {
-            if (closed.compareAndSet(false, true)) ServerStats.end()
+            if (closed.compareAndSet(false, true)) {
+                ServerStats.end()
+                tracker?.finish(served)
+            }
         }
     }
 }

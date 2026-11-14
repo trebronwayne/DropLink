@@ -115,6 +115,8 @@ class LocalServerService : Service() {
                 stage = "loading pairing data"
                 Pairing.init(applicationContext)
                 ReceivedFiles.init(applicationContext)
+                io.github.trebronwayne.droplink.core.Presence.init(applicationContext)
+                io.github.trebronwayne.droplink.core.Partials.init(applicationContext)
                 var tls: TlsIdentity.Material? = null
                 if (!useHttp) {
                     stage = "creating the security certificate"
@@ -186,6 +188,7 @@ class LocalServerService : Service() {
         Uploads.onRequest = null
         Uploads.onBatchDone = null
         Uploads.clearAll()
+        io.github.trebronwayne.droplink.core.Outbox.clearAll()
         try { Discovery.stopAdvertising() } catch (_: Throwable) { }
         getSystemService(NotificationManager::class.java).apply {
             cancel(PAIRING_NOTIFICATION_ID)
@@ -418,7 +421,7 @@ class LocalServerService : Service() {
         val notification = NotificationCompat.Builder(this, requestsChannelId())
             .setSmallIcon(R.drawable.ic_stat_droplink)
             .setContentTitle("Pairing request")
-            .setContentText("${request.deviceName} wants to connect. Code ${request.code}. Open DropLink to approve.")
+            .setContentText("${request.label} wants to connect. Code ${request.code}. Open DropLink to approve.")
             .setContentIntent(openApp)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)

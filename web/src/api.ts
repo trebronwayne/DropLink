@@ -41,7 +41,9 @@ export type UploadState = 'pending' | 'approved' | 'denied' | 'expired' | 'done'
 /** The phone said no, or could not take the file. `code` is a short machine-readable reason. */
 export class UploadError extends Error {
   code: string
-  constructor(code: string, message?: string) { super(message ?? code); this.code = code }
+  /** For `offset_mismatch` and `incomplete`: how much the phone really has. */
+  offset?: number
+  constructor(code: string, message?: string, offset?: number) { super(message ?? code); this.code = code; this.offset = offset }
 }
 
 async function uploadJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -54,26 +56,39 @@ async function uploadJson<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
-/** Sends one file as the raw request body. XMLHttpRequest is used because fetch cannot report upload progress. */
-export function sendFile(id: string, index: number, file: File, onProgress: (loaded: number) => void, signal: AbortSignal): Promise<{ name: string }> {
+/** What the phone already holds of a file it is receiving. */
+export type UploadOffset = { offset: number; done: boolean }
+
+/**
+ * Sends one file (from [offset] onward) as the raw request body. The phone keeps what already arrived, so after a
+ * dropped connection the next call starts at the phone's offset instead of at zero.
+ * XMLHttpRequest is used because fetch cannot report upload progress.
+ */
+export function sendFile(id: string, index: number, file: File, offset: number, onProgress: (loaded: number) => void, signal: AbortSignal): Promise<{ name: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('PUT', `/api/upload/file?id=${q(id)}&index=${index}`)
     xhr.setRequestHeader('Content-Type', 'application/octet-stream')
-    xhr.upload.onprogress = e => onProgress(e.loaded)
+    xhr.setRequestHeader('X-Upload-Offset', String(offset))
+    xhr.upload.onprogress = e => onProgress(offset + e.loaded)
     xhr.onload = () => {
       let body: Record<string, unknown> = {}
       try { body = JSON.parse(xhr.responseText) } catch { /* empty body */ }
       if (xhr.status === 401) reject(new AuthError())
       else if (xhr.status >= 200 && xhr.status < 300) resolve({ name: String(body.name ?? file.name) })
-      else reject(new UploadError(String(body.error ?? 'failed'), `Upload failed (${xhr.status})`))
+      else reject(new UploadError(String(body.error ?? 'failed'), `Upload failed (${xhr.status})`, typeof body.offset === 'number' ? body.offset : undefined))
     }
     xhr.onerror = () => reject(new OfflineError())
     xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'))
     signal.addEventListener('abort', () => xhr.abort(), { once: true })
-    xhr.send(file)
+    xhr.send(offset > 0 ? file.slice(offset) : file)
   })
 }
+
+/* ---------- who this device is, and files the phone sends here ---------- */
+export type DeviceInfo = { id: string; name: string; person: string; model: string; platform: string }
+export type InboxFile = { index: number; name: string; size: number; mime: string; bytes: number; state: 'waiting' | 'downloading' | 'done' | 'interrupted' }
+export type InboxItem = { id: string; createdAt: number; files: InboxFile[] }
 
 /* ---------- listing cache: instant paint from memory/session, then revalidate ---------- */
 type Cached = { at: number; data: Entry[] }
@@ -104,8 +119,21 @@ function remember(k: string, data: Entry[]) {
 }
 
 export const api = {
-  async pairRequest(name: string): Promise<{ id: string; code: string }> {
-    return (await request('/api/pair/request', { method: 'POST', body: JSON.stringify({ name }) }, 1)).json()
+  async pairRequest(info: { name: string; person: string; model: string; platform: string }): Promise<{ id: string; code: string }> {
+    return (await request('/api/pair/request', { method: 'POST', body: JSON.stringify(info) }, 1)).json()
+  },
+  async device(): Promise<DeviceInfo> {
+    return (await request('/api/device')).json()
+  },
+  async setDevice(person: string, model: string): Promise<void> {
+    await request('/api/device/info', { method: 'POST', body: JSON.stringify({ person, model }) }, 1)
+  },
+  /** Files the phone's owner sent to this device. Also tells the phone this device is online. */
+  async inbox(): Promise<InboxItem[]> {
+    const r = await fetch('/api/inbox', { credentials: 'same-origin', cache: 'no-store' })
+    if (r.status === 401) throw new AuthError()
+    if (!r.ok) throw new Error(`Request failed (${r.status})`)
+    return (await r.json()).items as InboxItem[]
   },
   async pairStatus(id: string): Promise<'pending' | 'approved' | 'denied' | 'expired'> {
     return (await request(`/api/pair/status?id=${q(id)}`, undefined, 1)).json().then(r => r.status)
@@ -141,7 +169,10 @@ export const api = {
   uploadInfo(): Promise<UploadInfo> {
     return uploadJson<UploadInfo>('/api/upload/info')
   },
-  uploadRequest(files: { name: string; size: number }[]): Promise<{ id: string; status: UploadState; always: boolean }> {
+  uploadOffset(id: string, index: number): Promise<UploadOffset> {
+    return uploadJson<UploadOffset>(`/api/upload/offset?id=${q(id)}&index=${index}`)
+  },
+  uploadRequest(files: { name: string; size: number; fp: string }[]): Promise<{ id: string; status: UploadState; always: boolean }> {
     return uploadJson('/api/upload/request', { method: 'POST', body: JSON.stringify({ files }) })
   },
   uploadStatus(id: string): Promise<{ status: UploadState }> {
@@ -157,5 +188,6 @@ export const api = {
 
 export const fileUrl = (share: string, path: string, download = false) =>
   `/api/file?share=${q(share)}&path=${q(path)}${download ? '&download=1' : ''}`
+export const inboxUrl = (batch: string, index: number) => `/api/inbox/file?batch=${q(batch)}&index=${index}`
 export const thumbUrl = (share: string, path: string) => `/api/thumb?share=${q(share)}&path=${q(path)}`
 export const qrUrl = (text: string) => `/api/qr?text=${q(text)}`

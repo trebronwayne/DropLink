@@ -1,6 +1,6 @@
 /* DropLink service worker: keeps the app shell so it opens instantly and can still show the "reconnect" screen when the
    phone cannot be reached. It never touches /api/ (live data, media, thumbnails). Browsers only run it on trusted HTTPS. */
-const VERSION = 'droplink-shell-v5'
+const VERSION = 'droplink-shell-v6'
 const SHELL = ['/', '/manifest.json', '/favicon.svg', '/icon-192.png']
 
 self.addEventListener('install', e => {

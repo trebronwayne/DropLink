@@ -12,26 +12,21 @@ import { ACCENTS, Display, getResume, load, Ref, save, ThemeMode, useDisplay, us
 import { ToastProvider, useToast } from './toast'
 import { useDialog } from './a11y'
 import { UploadDialog } from './upload'
+import { IdentifyDialog, InboxPage, useInbox } from './inbox'
+import { browserName, detectModel, guessDeviceName, osName, saveWho, savedWho } from './device'
 import { formatDate, formatSize, formatTime, Kind, kindOf, stripExt } from './util'
 
 type Route = { share: string; segments: string[] }
 type SortKey = 'name' | 'size' | 'modified'
 type ViewMode = 'list' | 'grid'
 type Filter = 'all' | 'image' | 'video' | 'audio' | 'doc'
-const PAGES = ['speed', 'favorites', 'recent', 'settings']
+const PAGES = ['speed', 'favorites', 'recent', 'settings', 'inbox']
 
 function parseHash(): Route {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent)
   return { share: parts[0] ?? '', segments: parts.slice(1) }
 }
 const toHash = (share: string, segments: string[]) => '#/' + [share, ...segments].filter(Boolean).map(encodeURIComponent).join('/')
-
-function guessDeviceName(): string {
-  const ua = navigator.userAgent
-  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser'
-  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : 'device'
-  return `${browser} on ${os}`
-}
 
 const isMedia = (k: Kind) => k === 'audio' || k === 'video'
 const matchesFilter = (k: Kind, f: Filter) => f === 'all' || (f === 'doc' ? k === 'pdf' || k === 'text' || k === 'file' || k === 'archive' : k === f)
@@ -70,17 +65,23 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
 /* ---------- Pairing ---------- */
 
 function Pair({ onDone }: { onDone: () => void }) {
-  const [name, setName] = useState(guessDeviceName())
+  const [person, setPerson] = useState(savedWho().person)
+  const [model, setModel] = useState(savedWho().model)
   const [request, setRequest] = useState<{ id: string; code: string } | null>(null)
   const [message, setMessage] = useState('')
   const [mood, setMood] = useState<AubreeState>('welcome')
   const [approved, setApproved] = useState(false)
   const [busy, setBusy] = useState(false)
 
+  useEffect(() => { detectModel().then(m => setModel(cur => cur || m)) }, [])
+
   const start = async (ev: React.FormEvent) => {
     ev.preventDefault()
     setBusy(true); setMessage('')
-    try { setRequest(await api.pairRequest(name.trim())); setMood('wait') }
+    try {
+      saveWho({ person: person.trim(), model: model.trim() })
+      setRequest(await api.pairRequest({ name: guessDeviceName(), person: person.trim(), model: model.trim(), platform: `${browserName()} on ${osName()}` })); setMood('wait')
+    }
     catch (e) {
       if (e instanceof LockedError) { setMessage('Too many requests. Wait a minute, then try again.'); setMood('sleepy') }
       else { setMessage('Could not reach the phone.'); setMood('offline') }
@@ -119,10 +120,13 @@ function Pair({ onDone }: { onDone: () => void }) {
         ) : !request ? (
           <form onSubmit={start} className="stack">
             <p className="muted">Ask this phone for access. You approve the request on the phone, so nobody else on the network can get in.</p>
-            <label className="field-label" htmlFor="device">Device name</label>
-            <input id="device" className="nm-input" value={name} maxLength={40} onChange={e => setName(e.target.value)} />
+            <label className="field-label" htmlFor="who-name">Your name</label>
+            <input id="who-name" className="nm-input" value={person} maxLength={40} placeholder="For example Sarah" autoComplete="name" onChange={e => setPerson(e.target.value)} />
+            <label className="field-label" htmlFor="who-model">Device model <span className="muted">(optional)</span></label>
+            <input id="who-model" className="nm-input" value={model} maxLength={60} placeholder="For example Samsung Galaxy A14" onChange={e => setModel(e.target.value)} />
+            <p className="muted small">Browsers hide your device’s name and model, so the phone’s owner relies on what you type to know who is asking. Detected: {guessDeviceName()}.</p>
             {message && <p className="error" role="alert">{message}</p>}
-            <button className="nm-btn primary" disabled={busy || !name.trim()}>{busy ? 'Sending…' : 'Request access'}</button>
+            <button className="nm-btn primary" disabled={busy || !person.trim()}>{busy ? 'Sending…' : 'Request access'}</button>
           </form>
         ) : (
           <div className="stack">
@@ -535,10 +539,17 @@ function ContinueCards({ items }: { items: Ref[] }) {
   )
 }
 
-function Home({ shares, fav, recents, onSend }: { shares: Share[]; fav: ReturnType<typeof useFavorites>; recents: ReturnType<typeof useRecents>; onSend: () => void }) {
+function Home({ shares, fav, recents, onSend, waiting }: { shares: Share[]; fav: ReturnType<typeof useFavorites>; recents: ReturnType<typeof useRecents>; onSend: () => void; waiting: number }) {
   return (
     <>
       <ContinueCards items={recents.list} />
+      {waiting > 0 && (
+        <a className="send-card nm-raised inbox-banner" href="#/inbox">
+          <Aubree state="celebrate" size={72} />
+          <div className="send-card-text"><strong>{waiting} file{waiting === 1 ? '' : 's'} from the phone</strong><span className="muted small">The phone’s owner sent you something. Open it to download.</span></div>
+          <span className="nm-btn primary"><DownloadIcon width={18} height={18} /> Open</span>
+        </a>
+      )}
       <div className="send-card nm-raised">
         <Aubree state="welcome" size={72} />
         <div className="send-card-text"><strong>Send files to this phone</strong><span className="muted small">Choose files, or drop them anywhere on this page. The phone asks its owner to approve first.</span></div>
@@ -585,9 +596,9 @@ function Switch({ label, hint, checked, onChange }: { label: string; hint?: stri
   )
 }
 
-function Settings({ theme, display, setDisplay, install, standalone, onShortcuts }: {
+function Settings({ theme, display, setDisplay, install, standalone, onShortcuts, onIdentify }: {
   theme: ReturnType<typeof useTheme>; display: Display; setDisplay: <K extends keyof Display>(k: K, v: Display[K]) => void
-  install: InstallEvent | null; standalone: boolean; onShortcuts: () => void
+  install: InstallEvent | null; standalone: boolean; onShortcuts: () => void; onIdentify: () => void
 }) {
   const [resume, setResume] = useSetting('resume', true)
   return (
@@ -615,6 +626,12 @@ function Settings({ theme, display, setDisplay, install, standalone, onShortcuts
           <Switch label="Reduce motion" hint="Turns off animations and smooth scrolling." checked={display.motion === 'reduce'} onChange={v => setDisplay('motion', v ? 'reduce' : 'auto')} />
           <Switch label="High contrast" hint="Stronger text and borders." checked={display.contrast === 'high'} onChange={v => setDisplay('contrast', v ? 'high' : 'normal')} />
           <button className="nm-btn" onClick={onShortcuts}><KeyboardIcon /> Keyboard shortcuts</button>
+        </section>
+
+        <section className="nm-raised card stack settings" aria-labelledby="set-device">
+          <h3 id="set-device">This device</h3>
+          <p className="muted small">The phone’s owner sees your name and device model, so they know who is who and can send you files.</p>
+          <button className="nm-btn" onClick={onIdentify}>Edit name and device model</button>
         </section>
 
         <section className="nm-raised card stack settings" aria-labelledby="set-play">
@@ -740,6 +757,7 @@ function Shell() {
   const player = usePlayer()
   const disp = useDisplay()
   const [help, setHelp] = useState(false)
+  const [identify, setIdentify] = useState(false)
   const [uploadFiles, setUploadFiles] = useState<File[] | null>(null)
   const [dragging, setDragging] = useState(false)
   const [authed, setAuthed] = useState<boolean | null>(() => (load<Share[] | null>('shares', null) ? true : null))
@@ -764,6 +782,19 @@ function Shell() {
     }
   }, [])
   useEffect(() => { loadShares() }, [loadShares])
+  const inbox = useInbox(authed === true, () => setAuthed(false))
+  // Ask once for a name and model if the phone does not have them yet (devices paired before this existed).
+  useEffect(() => {
+    if (authed !== true) return
+    if (Date.now() < Number(localStorage.getItem('dl.identify.skip') ?? 0)) return
+    api.device().then(d => {
+      if (d.person) return
+      const who = savedWho()
+      if (who.person) { api.setDevice(who.person, who.model).catch(() => undefined); return }
+      setIdentify(true)
+      localStorage.setItem('dl.identify.skip', String(Date.now() + 7 * 86_400_000))
+    }).catch(() => undefined)
+  }, [authed])
   // While the phone is unreachable keep checking, and recover on its own as soon as it answers.
   useEffect(() => {
     if (!down) return
@@ -842,7 +873,7 @@ function Shell() {
   // Page title and focus follow the route, so screen readers announce where you are.
   const firstRoute = useRef(true)
   useEffect(() => {
-    const names: Record<string, string> = { favorites: 'Favorites', recent: 'Recent', settings: 'Settings', speed: 'Speed test' }
+    const names: Record<string, string> = { favorites: 'Favorites', recent: 'Recent', settings: 'Settings', speed: 'Speed test', inbox: 'From the phone' }
     const place = names[route.share] ?? (route.share ? (route.segments[route.segments.length - 1] ?? shares.find(x => x.id === route.share)?.name ?? '') : 'Home')
     document.title = place ? `${place} · DropLink` : 'DropLink'
     if (firstRoute.current) { firstRoute.current = false; return }
@@ -855,8 +886,8 @@ function Shell() {
 
   const page = PAGES.includes(route.share) ? route.share : ''
   const current = shares.find(s => s.id === route.share)
-  const nav = (href: string, label: string, icon: React.ReactElement, active: boolean) => (
-    <a className={'nav-item' + (active ? ' active' : '')} href={href} aria-current={active ? 'page' : undefined}>{icon}<span className="ellipsis">{label}</span></a>
+  const nav = (href: string, label: string, icon: React.ReactElement, active: boolean, count = 0) => (
+    <a className={'nav-item' + (active ? ' active' : '')} href={href} aria-current={active ? 'page' : undefined}>{icon}<span className="ellipsis">{label}</span>{count > 0 && <span className="count" aria-label={`${count} waiting`}>{count > 99 ? '99+' : count}</span>}</a>
   )
 
   return (
@@ -876,6 +907,7 @@ function Shell() {
           {nav('#/', 'Home', <HomeIcon />, !route.share)}
           {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}
           {nav('#/recent', 'Recent', <ClockIcon />, page === 'recent')}
+          {nav('#/inbox', 'From the phone', <DownloadIcon />, page === 'inbox', inbox.waiting)}
           <div className="nav-title">Shared folders</div>
           {shares.map(s => (
             <a key={s.id} className={'nav-item' + (s.id === route.share ? ' active' : '')} href={toHash(s.id, [])} aria-current={s.id === route.share ? 'page' : undefined} onPointerEnter={() => api.prefetch(s.id, '')}>
@@ -889,15 +921,17 @@ function Shell() {
         <main className="content" id="content" tabIndex={-1}>
           {down && <Reconnect onRetry={loadShares} />}
           {page === 'speed' ? <SpeedTest />
-            : page === 'settings' ? <Settings theme={theme} display={disp.display} setDisplay={disp.set} install={installEvent} standalone={standalone} onShortcuts={() => setHelp(true)} />
+            : page === 'inbox' ? <InboxPage items={inbox.items} onRefresh={inbox.refresh} />
+            : page === 'settings' ? <Settings theme={theme} display={disp.display} setDisplay={disp.set} install={installEvent} standalone={standalone} onShortcuts={() => setHelp(true)} onIdentify={() => setIdentify(true)} />
             : page === 'favorites' ? <><h2 className="page-title">Favorites</h2><RefList items={fav.list} shares={shares} empty="Tap the star on any file or folder to keep it here." /></>
             : page === 'recent' ? <><h2 className="page-title">Recent</h2><RefList items={recents.list} shares={shares} empty="Files you open will appear here." onClear={recents.clear} /></>
             : current ? <Browser key={current.id} route={route} shareName={current.name} fav={fav} recents={recents} />
-            : <Home shares={shares} fav={fav} recents={recents} onSend={() => setUploadFiles([])} />}
+            : <Home shares={shares} fav={fav} recents={recents} onSend={() => setUploadFiles([])} waiting={inbox.waiting} />}
         </main>
       </div>
       {connect && <ConnectDialog onClose={() => setConnect(false)} />}
       {help && <ShortcutsDialog onClose={() => setHelp(false)} />}
+      {identify && <IdentifyDialog onClose={() => setIdentify(false)} />}
       {uploadFiles && <UploadDialog initialFiles={uploadFiles} onClose={() => setUploadFiles(null)} />}
       {dragging && !uploadFiles && (
         <div className="drop-overlay" aria-hidden="true"><Aubree state="welcome" size={110} /><strong>Drop files to send them to this phone</strong></div>
@@ -905,7 +939,7 @@ function Shell() {
       <nav className="tabbar nm-raised" aria-label="Quick navigation">
         {nav('#/', 'Home', <HomeIcon />, !route.share)}
         {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}
-        {nav('#/recent', 'Recent', <ClockIcon />, page === 'recent')}
+        {nav('#/inbox', 'Inbox', <DownloadIcon />, page === 'inbox', inbox.waiting)}
         {nav('#/settings', 'Settings', <SettingsIcon />, page === 'settings')}
       </nav>
     </div>

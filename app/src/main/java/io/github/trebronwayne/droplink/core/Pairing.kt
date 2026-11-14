@@ -12,7 +12,23 @@ import java.security.SecureRandom
 
 enum class PairStatus { Pending, Approved, Denied, Expired }
 
-data class PairRequest(val id: String, val deviceName: String, val code: String, val createdAt: Long, val status: PairStatus)
+/**
+ * A device asking to connect. [deviceName] is what the browser reports ("Chrome on Android"); [person] and [model] are
+ * typed by the visitor, because browsers hide the real phone model, so the owner can tell devices apart.
+ */
+data class PairRequest(
+    val id: String,
+    val deviceName: String,
+    val code: String,
+    val createdAt: Long,
+    val status: PairStatus,
+    val person: String = "",
+    val model: String = "",
+    val platform: String = ""
+) {
+    /** The best name to show: who it is if they said, otherwise what the browser reported. */
+    val label: String get() = person.ifBlank { deviceName }
+}
 
 /** What the phone does when a paired device wants to send it files. */
 enum class UploadPolicy(val key: String) {
@@ -34,8 +50,17 @@ data class TrustedDevice(
     val name: String,
     val tokenHash: String,
     val createdAt: Long,
-    val uploads: UploadPolicy = UploadPolicy.Ask
-)
+    val uploads: UploadPolicy = UploadPolicy.Ask,
+    /** Who is using it, as typed by them ("Sarah"). Empty if they did not say. */
+    val person: String = "",
+    /** The exact device model, as typed by them ("Samsung Galaxy A14"). Browsers do not reveal it. */
+    val model: String = "",
+    /** What the browser reported ("Chrome on Android"). */
+    val platform: String = ""
+) {
+    /** The best name to show: who it is if known, otherwise the browser's description. */
+    val label: String get() = person.ifBlank { name }
+}
 
 /**
  * Pairing and trust. A new device asks to connect, the phone owner approves it after comparing the confirmation
@@ -74,7 +99,8 @@ object Pairing {
                     val o = array.getJSONObject(i)
                     list += TrustedDevice(
                         o.getString("id"), o.getString("name"), o.getString("hash"), o.getLong("created"),
-                        UploadPolicy.from(o.optString("uploads", "ask"))
+                        UploadPolicy.from(o.optString("uploads", "ask")),
+                        o.optString("person"), o.optString("model"), o.optString("platform")
                     )
                 }
             } catch (_: Exception) { }
@@ -82,7 +108,9 @@ object Pairing {
         }
     }
 
-    fun create(rawName: String): PairRequest? {
+    private fun clean(raw: String, max: Int) = raw.filter { !it.isISOControl() }.trim().take(max)
+
+    fun create(rawName: String, rawPerson: String = "", rawModel: String = "", rawPlatform: String = ""): PairRequest? {
         val created: PairRequest
         synchronized(lock) {
             val now = System.currentTimeMillis()
@@ -92,7 +120,10 @@ object Pairing {
             if (recentCreations.size >= MAX_PER_MINUTE || pending >= MAX_PENDING) return null
             recentCreations.addLast(now)
             val name = rawName.filter { !it.isISOControl() }.trim().take(40).ifEmpty { "Unknown device" }
-            created = PairRequest(hex(16), name, "%06d".format(random.nextInt(1_000_000)), now, PairStatus.Pending)
+            created = PairRequest(
+                hex(16), name, "%06d".format(random.nextInt(1_000_000)), now, PairStatus.Pending,
+                person = clean(rawPerson, 40), model = clean(rawModel, 60), platform = clean(rawPlatform, 60)
+            )
             _requests.value = _requests.value + created
         }
         onRequest?.invoke(created)
@@ -113,7 +144,10 @@ object Pairing {
             purge(System.currentTimeMillis())
             val request = _requests.value.firstOrNull { it.id == id && it.status == PairStatus.Approved } ?: return null
             val token = hex(32)
-            val list = _trusted.value + TrustedDevice(hex(8), request.deviceName, sha256(token), System.currentTimeMillis())
+            val list = _trusted.value + TrustedDevice(
+                hex(8), request.deviceName, sha256(token), System.currentTimeMillis(),
+                person = request.person, model = request.model, platform = request.platform
+            )
             setTrusted(list)
             persist(list)
             _requests.value = _requests.value.filter { it.id != id }
@@ -133,6 +167,17 @@ object Pairing {
     fun setUploadPolicy(deviceId: String, policy: UploadPolicy) {
         synchronized(lock) {
             val list = _trusted.value.map { if (it.id == deviceId) it.copy(uploads = policy) else it }
+            setTrusted(list)
+            persist(list)
+        }
+    }
+
+    /** A device tells the phone who it is (or fixes a typo). Only the device's own session can call this. */
+    fun updateInfo(deviceId: String, rawPerson: String, rawModel: String) {
+        synchronized(lock) {
+            val list = _trusted.value.map {
+                if (it.id == deviceId) it.copy(person = clean(rawPerson, 40), model = clean(rawModel, 60)) else it
+            }
             setTrusted(list)
             persist(list)
         }
@@ -176,7 +221,7 @@ object Pairing {
         list.forEach {
             array.put(
                 JSONObject().put("id", it.id).put("name", it.name).put("hash", it.tokenHash).put("created", it.createdAt)
-                    .put("uploads", it.uploads.key)
+                    .put("uploads", it.uploads.key).put("person", it.person).put("model", it.model).put("platform", it.platform)
             )
         }
         prefs?.edit()?.putString(KEY, array.toString())?.apply()

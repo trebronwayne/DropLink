@@ -27,6 +27,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
@@ -124,6 +125,7 @@ import java.util.Date
 
 enum class Destination(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     Home("Home", Icons.Outlined.Home, Icons.Filled.Home),
+    Devices("Devices", Icons.Outlined.Devices, Icons.Filled.Devices),
     Servers("Servers", Icons.Outlined.Dns, Icons.Filled.Dns),
     Files("Files", Icons.Outlined.Folder, Icons.Filled.Folder),
     Transfers("Transfers", Icons.Outlined.SwapVert, Icons.Filled.SwapVert),
@@ -169,11 +171,32 @@ data class PairingUi(
     /** Files already received, newest first. */
     val received: List<ReceivedFile> = emptyList(),
     /** Answer an upload request: (request id, always approve this device). */
+    /** When each paired device was last seen (device id to time). */
+    val presence: Map<String, Long> = emptyMap(),
+    /** Progress of files being received, keyed "requestId:index". */
+    val receiving: Map<String, io.github.trebronwayne.droplink.core.ReceiveProgress> = emptyMap(),
+    /** Open a received file with another app. */
+    val onOpenReceived: (ReceivedFile) -> Unit = {},
     val onUploadApprove: (String, Boolean) -> Unit = { _, _ -> },
     val onUploadDeny: (String) -> Unit = {},
     val onSetUploadPolicy: (String, UploadPolicy) -> Unit = { _, _ -> },
     val onOpenDownloads: () -> Unit = {},
     val onClearReceived: () -> Unit = {}
+)
+
+/** A file the owner picked to send. */
+data class PickedFile(val uri: String, val name: String, val size: Long, val mime: String)
+
+/** Sending files from this phone to paired devices. */
+data class SendUi(
+    val picked: List<PickedFile> = emptyList(),
+    val batches: List<io.github.trebronwayne.droplink.core.OutBatch> = emptyList(),
+    val onPick: () -> Unit = {},
+    val onRemovePicked: (PickedFile) -> Unit = {},
+    /** Send the picked files. A null set means everyone who is online or recently online. */
+    val onSend: (Set<String>?) -> Unit = {},
+    val onCancel: (String) -> Unit = {},
+    val onRemove: (String) -> Unit = {}
 )
 
 data class NetworkUi(val nodes: List<DiscoveredNode>, val onOpen: (DiscoveredNode) -> Unit)
@@ -186,15 +209,16 @@ data class FilesUi(
 )
 
 @Composable
-fun DropLinkApp(nodeId: String, host: HostUi, files: FilesUi, pairing: PairingUi, network: NetworkUi) {
+fun DropLinkApp(nodeId: String, host: HostUi, files: FilesUi, pairing: PairingUi, network: NetworkUi, send: SendUi = SendUi()) {
     var current by rememberSaveable { mutableStateOf(Destination.Home) }
+    var preselect by remember { mutableStateOf<String?>(null) }
     val toasts = remember { AubreeToasts() }
     AubreeMoments(toasts, host, files, pairing)
     Surface(modifier = Modifier.fillMaxSize(), color = DropTheme.colors.background) {
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             val wide = maxWidth >= 600.dp
             val screen: @Composable () -> Unit = {
-                ScreenHost(current, wide, nodeId, host, files, pairing, network) { current = it }
+                ScreenHost(current, wide, nodeId, host, files, pairing, network, send, preselect, { preselect = it }) { current = it }
             }
             if (wide) {
                 Row(Modifier.fillMaxSize()) {
@@ -230,7 +254,7 @@ private fun AubreeMoments(toasts: AubreeToasts, host: HostUi, files: FilesUi, pa
     LaunchedEffect(pairing.requests) {
         val fresh = pairing.requests.filter { it.id !in seenRequests }
         seenRequests = seenRequests + pairing.requests.map { it.id }
-        fresh.firstOrNull()?.let { toasts.show(AubreeState.WELCOME, "${it.deviceName} wants to connect") }
+        fresh.firstOrNull()?.let { toasts.show(AubreeState.WELCOME, "${it.label} wants to connect") }
     }
 
     var seenUploads by remember { mutableStateOf(emptySet<String>()) }
@@ -326,6 +350,9 @@ private fun ScreenHost(
     files: FilesUi,
     pairing: PairingUi,
     network: NetworkUi,
+    send: SendUi,
+    preselect: String?,
+    onPreselect: (String?) -> Unit,
     onNavigate: (Destination) -> Unit
 ) {
     when (destination) {
@@ -350,10 +377,19 @@ private fun ScreenHost(
             if (pairing.requests.isEmpty() && pairing.uploads.none { it.status == io.github.trebronwayne.droplink.core.UploadStatus.Pending }) HostingBuddy(host, pairing)
             DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh, host.error, host.stats, host.testResults, host.onTest, host.onOpenLocal, !host.useHttp)
             DropSectionTitle("Network workspace")
+            val now = rememberNow()
+            val onlineCount = pairing.trusted.count { io.github.trebronwayne.droplink.core.Presence.status(pairing.presence[it.id], now) == io.github.trebronwayne.droplink.core.PresenceStatus.Online }
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
-                DropInfoCard(Icons.Filled.Dns, "Servers", "${network.nodes.size} found nearby", Modifier.weight(1f)) { onNavigate(Destination.Servers) }
+                DropInfoCard(Icons.Filled.Devices, "Devices", "$onlineCount online \u00b7 ${pairing.trusted.size} paired", Modifier.weight(1f)) { onNavigate(Destination.Devices) }
                 DropInfoCard(Icons.Filled.Folder, "Files", "${files.folders.size} shared folder(s)", Modifier.weight(1f)) { onNavigate(Destination.Files) }
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
+                DropInfoCard(Icons.Filled.SwapVert, "Transfers", "${send.batches.size} sent \u00b7 ${pairing.received.size} received", Modifier.weight(1f)) { onNavigate(Destination.Transfers) }
+                DropInfoCard(Icons.Filled.Dns, "Servers", "${network.nodes.size} found nearby", Modifier.weight(1f)) { onNavigate(Destination.Servers) }
+            }
+        }
+        Destination.Devices -> ScreenScaffold("Devices", "Who is paired, and who is around", wide) {
+            DevicesContent(pairing) { id -> onPreselect(id); onNavigate(Destination.Transfers) }
         }
         Destination.Servers -> ScreenScaffold("Servers", "DropLink nodes on your network", wide) {
             ServersContent(network)
@@ -361,11 +397,11 @@ private fun ScreenHost(
         Destination.Files -> ScreenScaffold("Files", "Folders you share from this phone", wide) {
             FilesContent(files)
         }
-        Destination.Transfers -> ScreenScaffold("Transfers", "Files sent to this phone", wide) {
-            ReceivedContent(pairing)
+        Destination.Transfers -> ScreenScaffold("Transfers", "Send files and see what arrives", wide) {
+            TransfersContent(pairing, send, preselect) { onPreselect(null) }
         }
         Destination.Settings -> ScreenScaffold("Settings", "Your phone, hosting and support", wide) {
-            SettingsContent(nodeId, host, pairing)
+            SettingsContent(nodeId, host, pairing, onNavigate)
         }
     }
 }
@@ -407,7 +443,9 @@ private fun PairingRequestCard(request: PairRequest, onApprove: (String) -> Unit
             Aubree(state = AubreeState.WELCOME, size = 64.dp, contentDescription = "")
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
                 DropText("Someone wants to connect", style = type.subtitle)
-                DropText("${request.deviceName} wants to browse your shared folders.", style = type.body)
+                DropText("${request.label} wants to browse your shared folders.", style = type.body)
+                val detail = listOf(request.model, request.deviceName).filter { it.isNotBlank() && it != request.label }.joinToString(" \u00b7 ")
+                if (detail.isNotEmpty()) DropText(detail, style = type.caption, color = secondary)
             }
         }
         DropText(request.code, style = type.title, fontFamily = FontFamily.Monospace)
@@ -443,36 +481,6 @@ private fun UploadRequestCard(request: UploadRequest, onApprove: (String, Boolea
             DropButton("Approve once", { onApprove(request.id, false) }, Modifier.weight(1f), DropButtonStyle.Primary)
         }
         DropButton("Always approve from ${request.deviceName}", { onApprove(request.id, true) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)
-    }
-}
-
-@Composable
-private fun ReceivedContent(pairing: PairingUi) {
-    val type = DropTheme.type
-    val secondary = DropTheme.colors.textSecondary
-    if (pairing.received.isEmpty()) {
-        AubreeEmptyState(
-            AubreeState.EMPTY, "No files received yet",
-            "When a paired device sends you files and you approve them, they are saved in ${ReceivedFiles.LOCATION} and listed here."
-        )
-        return
-    }
-    DropCard {
-        DropText("Received files", style = type.subtitle)
-        DropText("Saved in ${ReceivedFiles.LOCATION}", style = type.caption, color = secondary)
-        pairing.received.take(20).forEach { file ->
-            Column(verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
-                DropText(file.name, style = type.bodyStrong)
-                DropText(
-                    "${formatBytes(file.size)}  \u00b7  from ${file.from}  \u00b7  ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(file.at))}",
-                    style = type.caption, color = secondary
-                )
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
-            DropButton("Open Downloads", pairing.onOpenDownloads, Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.Folder)
-            DropButton("Clear list", pairing.onClearReceived, Modifier.weight(1f), DropButtonStyle.Subtle)
-        }
     }
 }
 
@@ -535,7 +543,7 @@ private fun FilesContent(files: FilesUi) {
 }
 
 @Composable
-private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
+private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi, onNavigate: (Destination) -> Unit) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val type = DropTheme.type
@@ -573,6 +581,11 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
         "Hosting",
         footer = "Keep Battery Saver and Data Saver off while hosting. They make Android pause background apps, so other devices lose the connection when you leave DropLink."
     ) {
+        DropLinkRow(
+            "Paired devices", Icons.Outlined.Devices, { onNavigate(Destination.Devices) },
+            subtitle = if (pairing.trusted.isEmpty()) "None yet" else "${pairing.trusted.size} paired. Manage them in Devices."
+        )
+        DropRowDivider()
         DropSettingRow(
             "Battery optimization",
             subtitle = if (host.batteryRestricted) "On. Android may pause hosting in the background." else "Off. Hosting can keep running.",
@@ -594,37 +607,6 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
             subtitle = if (host.isHosting) "Stop hosting to change this." else "Turns encryption off. Only for finding problems on a network you control.",
             icon = Icons.Outlined.Science
         )
-    }
-
-    Spacer(Modifier.height(groupGap))
-
-    // 3. Devices: who may connect and send
-    DropSettingsGroup("Trusted devices") {
-        if (pairing.trusted.isEmpty()) {
-            DropSettingRow(
-                "No devices paired yet", icon = Icons.Outlined.Devices,
-                subtitle = "When a browser asks to connect, approve it from Home."
-            )
-        }
-        pairing.trusted.forEachIndexed { index, device ->
-            if (index > 0) DropRowDivider(inset = false)
-            DropSettingRow(
-                device.name, icon = Icons.Outlined.Devices,
-                subtitle = "Paired ${DateFormat.getDateInstance().format(Date(device.createdAt))}",
-                trailing = { DropButton("Revoke", { pairing.onRevoke(device.id) }, style = DropButtonStyle.Subtle) }
-            )
-            Column(
-                Modifier.padding(start = DropSpacing.l, end = DropSpacing.l, bottom = DropSpacing.l),
-                verticalArrangement = Arrangement.spacedBy(DropSpacing.s)
-            ) {
-                DropText("Files this device sends to your phone", style = type.caption, color = secondary)
-                DropSegmented(
-                    listOf(UploadPolicy.Ask to "Ask me", UploadPolicy.Always to "Always", UploadPolicy.Blocked to "Block"),
-                    selected = device.uploads,
-                    onSelect = { pairing.onSetUploadPolicy(device.id, it) }
-                )
-            }
-        }
     }
 
     Spacer(Modifier.height(groupGap))
@@ -666,10 +648,8 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
                 "Live streaming: watch a video file as the phone plays it",
                 "Live camera: use the phone as a CCTV camera",
                 "Remote presentation: control slides on a big screen from the phone",
-                "Send and receive files: send to one, two or everyone connected; people accept, or turn on auto-accept",
                 "People: see who is connected, send messages, files and attachments",
-                "Feedback: visitors write to you and you reply",
-                "A richer device list with more details about each device"
+                "Feedback: visitors write to you and you reply"
             ).forEach { DropText("\u2022  $it", style = type.caption, color = secondary) }
         }
     }
