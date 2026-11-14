@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>DropLink feature graphic (1024x500)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1024px; height: 500px; overflow: hidden; background: #0b0f16; }
+  body { position: relative; font-family: 'Poppins', 'Segoe UI', system-ui, sans-serif; color: #eef2f8; }
+  .bg { position: absolute; inset: 0; background:
+    radial-gradient(520px 420px at 36% 55%, rgba(10,132,255,.30), transparent 70%),
+    radial-gradient(420px 320px at 86% 8%, rgba(10,230,204,.16), transparent 70%),
+    linear-gradient(135deg, #0a0e15 0%, #111a29 55%, #0c1420 100%); }
+  .dots { position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,.07) 1px, transparent 1.2px); background-size: 22px 22px; -webkit-mask-image: radial-gradient(ellipse at 60% 50%, #000 20%, transparent 75%); mask-image: radial-gradient(ellipse at 60% 50%, #000 20%, transparent 75%); }
+  svg.links { position: absolute; inset: 0; width: 1024px; height: 500px; }
+  .abs { position: absolute; }
+
+  /* ---- text ---- */
+  .brand { left: 38px; top: 40px; display: flex; align-items: center; gap: 12px; }
+  .brand img { width: 40px; height: 52px; }
+  .brand b { font-size: 31px; letter-spacing: -.02em; font-weight: 700; }
+  h1 { left: 38px; top: 118px; width: 270px; font-size: 29px; line-height: 1.2; font-weight: 700; letter-spacing: -.02em; }
+  h1 span { background: linear-gradient(90deg, #12e0cf, #2f8bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { left: 38px; top: 250px; width: 262px; font-size: 13.5px; line-height: 1.5; color: #b6c2d4; }
+  .pills { left: 38px; top: 366px; width: 262px; display: flex; flex-wrap: wrap; gap: 7px; }
+  .pills i { font-style: normal; font-size: 11.5px; font-weight: 500; padding: 5px 11px; border-radius: 999px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.06); color: #dfe7f3; }
+  .free { left: 38px; top: 446px; font-size: 11.5px; color: #8fa0b8; letter-spacing: .04em; }
+
+  /* ---- shared device bits ---- */
+  .shadow { position: absolute; filter: blur(14px); background: rgba(0,0,0,.55); border-radius: 50%; }
+  .screen { position: relative; overflow: hidden; background: #000; }
+  .screen img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+  .screen::after { content: ''; position: absolute; inset: 0; background: linear-gradient(120deg, rgba(255,255,255,.13) 0%, rgba(255,255,255,.04) 28%, transparent 46%); pointer-events: none; }
+  .cap { position: absolute; font-size: 11px; font-weight: 500; letter-spacing: .06em; color: #9fb0c8; text-align: center; white-space: nowrap; }
+  .cap b { color: #e8eef8; font-weight: 600; }
+
+  /* ---- Android phone ---- */
+  .android { left: 318px; top: 52px; width: 192px; height: 396px; border-radius: 30px; padding: 7px;
+    background: linear-gradient(145deg, #3a4150, #15181f 45%, #2a303b); box-shadow: 0 0 0 1.5px #5b6577 inset, 0 28px 50px -10px rgba(0,0,0,.75), 0 0 60px rgba(10,132,255,.25); }
+  .android .screen { width: 100%; height: 100%; border-radius: 24px; }
+  .android .hole { position: absolute; left: 50%; top: 13px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: #05070a; box-shadow: 0 0 0 2px rgba(255,255,255,.08); z-index: 3; }
+  .android .btn { position: absolute; right: -3px; width: 3px; border-radius: 2px; background: #4a5262; }
+
+  /* ---- iPhone ---- */
+  .iphone { left: 878px; top: 252px; width: 92px; height: 190px; border-radius: 24px; padding: 4px;
+    background: linear-gradient(145deg, #c9ced6, #7d8592 45%, #b8bec8); box-shadow: 0 0 0 1px rgba(255,255,255,.35) inset, 0 20px 34px -10px rgba(0,0,0,.7); }
+  .iphone .black { width: 100%; height: 100%; border-radius: 20px; background: #000; padding: 3px; }
+  .iphone .screen { width: 100%; height: 100%; border-radius: 17px; }
+  .iphone .island { position: absolute; left: 50%; top: 6px; width: 28px; height: 8px; margin-left: -14px; border-radius: 8px; background: #000; z-index: 3; }
+  .iphone .btn { position: absolute; left: -2.5px; width: 2.5px; border-radius: 2px; background: #9aa2af; }
+
+  /* ---- Laptop ---- */
+  .laptop { left: 548px; top: 262px; width: 250px; height: 150px; }
+  .laptop .lid { position: absolute; left: 22px; top: 0; width: 206px; height: 130px; border-radius: 10px 10px 2px 2px; padding: 6px 6px 8px; background: linear-gradient(160deg, #cfd4dc, #8b93a0 60%, #b9bfc9); box-shadow: 0 0 0 1px rgba(255,255,255,.3) inset; }
+  .laptop .bezel { width: 100%; height: 100%; background: #05070a; border-radius: 5px; padding: 5px 4px 4px; position: relative; }
+  .laptop .screen { width: 100%; height: 100%; border-radius: 2px; }
+  .laptop .cam { position: absolute; left: 50%; top: 1.6px; width: 3px; height: 3px; margin-left: -1.5px; border-radius: 50%; background: #1d2530; }
+  .laptop .base { position: absolute; left: 0; top: 129px; width: 250px; height: 11px; border-radius: 2px 2px 12px 12px; background: linear-gradient(#d7dbe2, #9aa2af 70%, #7d8592); box-shadow: 0 8px 14px rgba(0,0,0,.55); }
+  .laptop .base::before { content: ''; position: absolute; left: 50%; top: 0; width: 56px; height: 4px; margin-left: -28px; border-radius: 0 0 6px 6px; background: #8f97a4; }
+
+  /* ---- Desktop monitor ---- */
+  .monitor { left: 548px; top: 36px; width: 224px; height: 176px; }
+  .monitor .panel { position: absolute; left: 0; top: 0; width: 224px; height: 142px; border-radius: 8px; padding: 6px; background: linear-gradient(150deg, #2b313c, #10131a); box-shadow: 0 0 0 1.5px #566071 inset, 0 18px 30px -10px rgba(0,0,0,.7); }
+  .monitor .screen { width: 100%; height: 100%; border-radius: 3px; }
+  .monitor .neck { position: absolute; left: 50%; top: 141px; width: 22px; height: 24px; margin-left: -11px; background: linear-gradient(90deg, #5c6574, #aab2bf, #5c6574); }
+  .monitor .foot { position: absolute; left: 50%; top: 162px; width: 92px; height: 7px; margin-left: -46px; border-radius: 4px; background: linear-gradient(#c3c9d3, #7b8391); box-shadow: 0 6px 10px rgba(0,0,0,.5); }
+
+  /* ---- Smart TV ---- */
+  .tv { left: 800px; top: 44px; width: 200px; height: 150px; }
+  .tv .panel { position: absolute; left: 0; top: 0; width: 200px; height: 118px; border-radius: 4px; padding: 3px; background: #06080c; box-shadow: 0 0 0 1.5px #3b4452 inset, 0 18px 30px -10px rgba(0,0,0,.75); }
+  .tv .screen { width: 100%; height: 100%; border-radius: 2px; }
+  .tv .chin { position: absolute; left: 50%; bottom: 1px; width: 14px; height: 3px; margin-left: -7px; border-radius: 2px; background: #2a3140; z-index: 3; }
+  .tv .leg { position: absolute; top: 114px; width: 26px; height: 6px; border-radius: 0 0 4px 4px; background: linear-gradient(#59627a, #2a3140); transform-origin: top; }
+  .tv .leg.l { left: 26px; transform: skewX(-24deg); } .tv .leg.r { right: 26px; transform: skewX(24deg); }
+</style></head>
+<body>
+  <div class="bg"></div><div class="dots"></div>
+
+  <!-- sharing links from the phone to every device -->
+  <svg class="links" viewBox="0 0 1024 500" fill="none">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#12e0cf"/><stop offset="1" stop-color="#2f8bff"/></linearGradient>
+      <filter id="glow"><feGaussianBlur stdDeviation="2.2"/></filter>
+    </defs>
+    <g stroke="url(#g)" stroke-width="1.8" stroke-dasharray="2 6" stroke-linecap="round" opacity=".9">
+      <path d="M512 160 C 535 130, 540 120, 548 116"/>
+      <path d="M512 215 C 600 215, 700 130, 800 112"/>
+      <path d="M512 270 C 540 300, 540 320, 548 330"/>
+      <path d="M512 330 C 640 420, 780 430, 878 360"/>
+    </g>
+    <g stroke="url(#g)" stroke-width="4" stroke-dasharray="2 6" stroke-linecap="round" opacity=".35" filter="url(#glow)">
+      <path d="M512 215 C 600 215, 700 130, 800 112"/><path d="M512 330 C 640 420, 780 430, 878 360"/>
+    </g>
+    <g fill="#12e0cf"><circle cx="512" cy="160" r="3.5"/><circle cx="512" cy="215" r="3.5"/><circle cx="512" cy="270" r="3.5"/><circle cx="512" cy="330" r="3.5"/></g>
+  </svg>
+
+  <!-- text -->
+  <div class="abs brand"><img src="../../branding/droplink-logo.svg" alt=""><b>DropLink</b></div>
+  <h1 class="abs">Share files from<br>your phone to<br><span>any device</span></h1>
+  <p class="abs sub">Music, videos, photos and documents on Windows, Mac, Linux, iPhone, Android and smart TVs. Only a browser needed. No cloud, no cable.</p>
+  <div class="abs pills"><i>Free</i><i>Open source</i><i>No account</i></div>
+  <p class="abs free">Android app · works with any browser</p>
+
+  <!-- desktop monitor -->
+  <div class="abs monitor"><div class="panel"><div class="screen"><img src="screens/desktop-grid-light.png" alt=""></div></div><div class="neck"></div><div class="foot"></div></div>
+  <div class="cap" style="left:548px;top:216px;width:224px"><b>Windows &amp; Linux PC</b></div>
+
+  <!-- smart tv -->
+  <div class="abs tv"><div class="panel"><div class="screen"><img src="screens/tv-player-dark.png" alt=""></div><div class="chin"></div></div><div class="leg l"></div><div class="leg r"></div></div>
+  <div class="cap" style="left:800px;top:176px;width:200px"><b>Smart TV</b></div>
+
+  <!-- laptop -->
+  <div class="abs laptop"><div class="lid"><div class="bezel"><div class="cam"></div><div class="screen"><img src="screens/laptop-player-light.png" alt=""></div></div></div><div class="base"></div></div>
+  <div class="cap" style="left:548px;top:420px;width:250px"><b>Mac, Windows &amp; Chromebook</b></div>
+
+  <!-- iphone -->
+  <div class="abs iphone"><div class="black"><div class="screen"><img src="screens/iphone-browse-light.png" alt=""></div><div class="island"></div></div>
+    <span class="btn" style="top:34px;height:12px"></span><span class="btn" style="top:54px;height:22px"></span><span class="btn" style="top:82px;height:22px"></span></div>
+  <div class="cap" style="left:846px;top:450px;width:156px"><b>iPhone &amp; iPad</b></div>
+
+  <!-- android phone (the host) -->
+  <div class="abs android"><div class="hole"></div><div class="screen"><img src="screens/android-hosting-store.png" alt=""></div>
+    <span class="btn" style="top:96px;height:44px"></span><span class="btn" style="top:152px;height:26px"></span></div>
+  <div class="cap" style="left:318px;top:458px;width:192px"><b>Android</b> · the host</div>
+</body></html>
