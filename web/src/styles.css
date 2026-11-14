@@ -698,3 +698,11 @@ html { -webkit-text-size-adjust: 100%; }
 .inbox-status.bad { color: var(--danger); }
 .inbox-status { margin: 0 4px 12px; }
 .banner .grow { flex: 1; }
+
+/* Shared folders on Home: compact rows like a file explorer, small icon and no big tinted box */
+.grid-view.folders { grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 10px; padding: 2px 0; }
+.folders .tile { flex-direction: row; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 14px; text-align: left; contain-intrinsic-size: auto 52px; transform: none; }
+.folders .tile:hover { background: var(--surface-2); }
+.folders .thumb { aspect-ratio: auto; width: 32px; height: 32px; flex: none; background: none; border: 0; box-shadow: none; border-radius: 0; overflow: visible; }
+.folders .thumb-icon svg { width: 28px; height: 28px; }
+.folders .tile-name { font-weight: 600; font-size: calc(14px * var(--ts, 1)); }

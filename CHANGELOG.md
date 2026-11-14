@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixes
+- Home: shared folders are now small explorer-style rows (28px icon, no large background box).
 - Web client on phones: content now uses the full width (a tablet-width rule was leaving half the screen empty).
 - Web client: Home is Home again. With one shared folder it opens that folder only when the page first loads.
 - Files sent to a device: the web page checks every 3 seconds and when it comes back to the front, shows a toast, a bar that stays until the files are downloaded, a tab-title count, and optional system notifications. The Inbox page shows when it last checked and any error. Files on offer are no longer lost when the hosting service restarts itself.

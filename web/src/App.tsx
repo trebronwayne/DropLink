@@ -562,7 +562,7 @@ function Home({ shares, fav, recents, onSend, waiting }: { shares: Share[]; fav:
       <div className="grid-view folders">
         {shares.map(s => (
           <a key={s.id} className="tile nm-raised" href={toHash(s.id, [])} onPointerEnter={() => api.prefetch(s.id, '')} onTouchStart={() => api.prefetch(s.id, '')}>
-            <span className="thumb nm-inset"><span className="thumb-icon"><FileTypeIcon kind="folder" size={56} /></span></span>
+            <span className="thumb"><span className="thumb-icon"><FileTypeIcon kind="folder" size={28} /></span></span>
             <span className="tile-name ellipsis">{s.name}</span>
           </a>
         ))}
