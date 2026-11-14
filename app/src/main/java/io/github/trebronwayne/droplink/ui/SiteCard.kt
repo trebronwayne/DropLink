@@ -27,6 +27,8 @@ import io.github.trebronwayne.droplink.ui.components.DropButton
 import io.github.trebronwayne.droplink.ui.components.DropButtonStyle
 import io.github.trebronwayne.droplink.ui.components.DropCard
 import io.github.trebronwayne.droplink.ui.components.DropText
+import io.github.trebronwayne.droplink.ui.components.DropSwitch
+import io.github.trebronwayne.droplink.ui.components.DropTextField
 import io.github.trebronwayne.droplink.ui.theme.DropSpacing
 import io.github.trebronwayne.droplink.ui.theme.DropTheme
 
@@ -78,7 +80,7 @@ fun SiteCard(site: SiteUi) {
                     DropText("Publish the page", style = type.bodyStrong)
                     DropText("Visitors can reach it while hosting is running.", style = type.caption, color = secondary)
                 }
-                Switch(checked = site.published, onCheckedChange = site.onPublishedChange)
+                DropSwitch(checked = site.published, onCheckedChange = site.onPublishedChange)
             }
             if (site.published) {
                 if (site.urls.isEmpty()) DropText("Start hosting to get the page address.", style = type.caption, color = secondary)
@@ -89,7 +91,7 @@ fun SiteCard(site: SiteUi) {
                     DropText("Anyone on this network can open it", style = type.bodyStrong)
                     DropText("Turn off to allow only devices you have approved.", style = type.caption, color = secondary)
                 }
-                Switch(checked = site.openToAnyone, onCheckedChange = site.onOpenToAnyoneChange)
+                DropSwitch(checked = site.openToAnyone, onCheckedChange = site.onOpenToAnyoneChange)
             }
         }
     }
@@ -110,11 +112,8 @@ fun SiteCard(site: SiteUi) {
                 DropButton("Remove", { site.onRemoveUser(user) }, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Delete)
             }
         }
-        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("New account name") })
-        OutlinedTextField(
-            password, { password = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Password (6 or more characters)") },
-            visualTransformation = PasswordVisualTransformation()
-        )
+        DropTextField(name, { name = it }, "New account name")
+        DropTextField(password, { password = it }, "Password (6 or more characters)", password = true)
         if (note.isNotEmpty()) DropText(note, style = type.caption, color = secondary)
         DropButton(
             "Add account", {

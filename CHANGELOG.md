@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Softer app design
+- New calm look for the app in light and dark themes: rounded cards with hairline edges, pill buttons, a soft white (dark theme) or ink (light theme) main action color, and one small teal accent from the logo for icons, toggles and focus.
+- Settings are now organised into groups: This phone, Hosting, Trusted devices, Diagnostics, Roadmap and About. Long content (certificate fingerprint, hosting log, roadmap) folds away until opened. Upload permission per device is a Ask / Always / Block selector.
+- Softer bottom bar and side navigation, rounded text fields, pill status badge and switches.
+
 ### Support
 - A **Support DropLink on Ko-fi** button in the app's About card and in the web client's Settings opens https://ko-fi.com/nobertlamn. GitHub's Sponsor button on the repository points to the same page (`.github/FUNDING.yml`).
 

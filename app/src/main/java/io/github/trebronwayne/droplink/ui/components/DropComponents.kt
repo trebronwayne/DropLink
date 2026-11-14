@@ -78,7 +78,7 @@ fun DropText(
     Text(text = text, modifier = modifier, color = color, style = style, fontFamily = fontFamily, textAlign = textAlign)
 }
 
-/** Fluent card: flat surface, 1dp stroke, 8dp corners, no heavy shadow. */
+/** Soft card: flat surface, a hairline edge and generous rounded corners. */
 @Composable
 fun DropCard(
     modifier: Modifier = Modifier,
@@ -86,11 +86,11 @@ fun DropCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val colors = DropTheme.colors
-    val shape = RoundedCornerShape(DropRadius.medium)
+    val shape = RoundedCornerShape(DropRadius.large)
     val border = BorderStroke(1.dp, colors.stroke)
     val inner: @Composable () -> Unit = {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(DropSpacing.l),
+            modifier = Modifier.fillMaxWidth().padding(DropSpacing.l + 2.dp),
             verticalArrangement = Arrangement.spacedBy(DropSpacing.m),
             content = content
         )
@@ -120,9 +120,9 @@ fun DropButton(
     enabled: Boolean = true
 ) {
     val c = DropTheme.colors
-    val shape = RoundedCornerShape(DropRadius.small)
+    val shape = RoundedCornerShape(DropRadius.pill)
     val padding = PaddingValues(horizontal = DropSpacing.l)
-    val sized = modifier.heightIn(min = 44.dp)
+    val sized = modifier.heightIn(min = 48.dp)
     val label: @Composable RowScope.() -> Unit = {
         if (icon != null) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -130,21 +130,28 @@ fun DropButton(
         }
         Text(text, style = DropTheme.type.bodyStrong)
     }
+    val disabledFill = c.field
+    val disabledText = c.textSecondary.copy(alpha = 0.55f)
     when (style) {
         DropButtonStyle.Primary -> Button(
             onClick = onClick, modifier = sized, enabled = enabled, shape = shape,
-            colors = ButtonDefaults.buttonColors(containerColor = c.brand, contentColor = c.onBrand),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = c.brand, contentColor = c.onBrand,
+                disabledContainerColor = disabledFill, disabledContentColor = disabledText
+            ),
             contentPadding = padding, content = label
         )
-        DropButtonStyle.Secondary -> OutlinedButton(
+        DropButtonStyle.Secondary -> Button(
             onClick = onClick, modifier = sized, enabled = enabled, shape = shape,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = c.textPrimary),
-            border = BorderStroke(1.dp, c.strokeStrong),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = c.field, contentColor = c.textPrimary,
+                disabledContainerColor = c.field, disabledContentColor = disabledText
+            ),
             contentPadding = padding, content = label
         )
         DropButtonStyle.Subtle -> TextButton(
             onClick = onClick, modifier = sized, enabled = enabled, shape = shape,
-            colors = ButtonDefaults.textButtonColors(contentColor = c.brand),
+            colors = ButtonDefaults.textButtonColors(contentColor = c.textPrimary, disabledContentColor = disabledText),
             contentPadding = padding, content = label
         )
     }
@@ -154,10 +161,10 @@ fun DropButton(
 fun DropIconTile(icon: ImageVector, modifier: Modifier = Modifier) {
     val c = DropTheme.colors
     Box(
-        modifier = modifier.size(36.dp).background(c.brandTint, RoundedCornerShape(DropRadius.small)),
+        modifier = modifier.size(40.dp).background(c.brandTint, RoundedCornerShape(DropRadius.medium)),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = null, tint = c.brand, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = null, tint = c.accent, modifier = Modifier.size(21.dp))
     }
 }
 
@@ -165,9 +172,12 @@ fun DropIconTile(icon: ImageVector, modifier: Modifier = Modifier) {
 fun DropStatusIndicator(active: Boolean, activeLabel: String = "Hosting", inactiveLabel: String = "Offline") {
     val c = DropTheme.colors
     val color = if (active) c.success else c.offline
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(8.dp).background(color, CircleShape))
-        Spacer(Modifier.width(DropSpacing.s))
+    Row(
+        modifier = Modifier.background(color.copy(alpha = 0.14f), RoundedCornerShape(DropRadius.pill)).padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(7.dp).background(color, CircleShape))
+        Spacer(Modifier.width(6.dp))
         DropText(if (active) activeLabel else inactiveLabel, style = DropTheme.type.caption, color = color)
     }
 }
@@ -189,7 +199,7 @@ fun DropInfoCard(
 
 @Composable
 fun DropSectionTitle(text: String) {
-    DropText(text, style = DropTheme.type.subtitle, modifier = Modifier.padding(top = DropSpacing.s))
+    DropText(text, style = DropTheme.type.subtitle, modifier = Modifier.padding(top = DropSpacing.m, start = 4.dp))
 }
 
 @Composable
@@ -316,7 +326,7 @@ private fun formatBytes(bytes: Long): String =
 @Composable
 fun QrImage(text: String, modifier: Modifier = Modifier.size(176.dp)) {
     val grid = remember(text) { try { Qr.modules(text) } catch (_: Throwable) { null } } ?: return
-    Canvas(modifier.background(Color.White, RoundedCornerShape(14.dp)).padding(12.dp)) {
+    Canvas(modifier.background(Color.White, RoundedCornerShape(18.dp)).padding(14.dp)) {
         val n = grid.size
         val cell = size.minDimension / n
         for (y in 0 until n) for (x in 0 until n) {
@@ -353,15 +363,12 @@ private fun HotspotQrSection() {
                     "Enter your hotspot name and password once. Android does not let apps read them, so they are kept only on this phone.",
                     style = type.caption, color = secondary
                 )
-                OutlinedTextField(ssid, { ssid = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Hotspot name") })
+                DropTextField(ssid, { ssid = it }, "Hotspot name")
                 if (!open) {
-                    OutlinedTextField(
-                        pass, { pass = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Hotspot password") },
-                        visualTransformation = PasswordVisualTransformation()
-                    )
+                    DropTextField(pass, { pass = it }, "Hotspot password", password = true)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
-                    Switch(checked = open, onCheckedChange = { open = it })
+                    DropSwitch(checked = open, onCheckedChange = { open = it })
                     DropText("No password", style = type.body)
                 }
                 DropButton(

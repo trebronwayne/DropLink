@@ -29,13 +29,13 @@ fun DropLinkTheme(
     // Material3 sits underneath only so stock components (ripples, text fields later) match the tokens.
     val scheme = if (darkTheme) {
         darkColorScheme(
-            primary = c.brand, onPrimary = c.onBrand, background = c.background, onBackground = c.textPrimary,
+            primary = c.accent, onPrimary = c.onBrand, background = c.background, onBackground = c.textPrimary,
             surface = c.card, onSurface = c.textPrimary, onSurfaceVariant = c.textSecondary,
             outline = c.stroke, error = c.danger
         )
     } else {
         lightColorScheme(
-            primary = c.brand, onPrimary = c.onBrand, background = c.background, onBackground = c.textPrimary,
+            primary = c.accent, onPrimary = c.onBrand, background = c.background, onBackground = c.textPrimary,
             surface = c.card, onSurface = c.textPrimary, onSurfaceVariant = c.textSecondary,
             outline = c.stroke, error = c.danger
         )

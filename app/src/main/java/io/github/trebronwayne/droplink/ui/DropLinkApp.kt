@@ -46,6 +46,27 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SwapVert
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.BatteryChargingFull
+import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Fingerprint
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.NotificationsNone
+import androidx.compose.material.icons.outlined.PrivacyTip
+import androidx.compose.material.icons.outlined.Science
+import io.github.trebronwayne.droplink.ui.components.DropChevron
+import io.github.trebronwayne.droplink.ui.components.DropCodeBox
+import io.github.trebronwayne.droplink.ui.components.DropExpandableRow
+import io.github.trebronwayne.droplink.ui.components.DropLinkRow
+import io.github.trebronwayne.droplink.ui.components.DropRowDivider
+import io.github.trebronwayne.droplink.ui.components.DropSegmented
+import io.github.trebronwayne.droplink.ui.components.DropSettingRow
+import io.github.trebronwayne.droplink.ui.components.DropSettingsGroup
+import io.github.trebronwayne.droplink.ui.components.DropSwitchRow
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -343,7 +364,7 @@ private fun ScreenHost(
         Destination.Transfers -> ScreenScaffold("Transfers", "Files sent to this phone", wide) {
             ReceivedContent(pairing)
         }
-        Destination.Settings -> ScreenScaffold("Settings", "Identity, security and about", wide) {
+        Destination.Settings -> ScreenScaffold("Settings", "Your phone, hosting and support", wide) {
             SettingsContent(nodeId, host, pairing)
         }
     }
@@ -519,131 +540,161 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi) {
     val context = LocalContext.current
     val type = DropTheme.type
     val secondary = DropTheme.colors.textSecondary
-    DropCard {
-        DropText("Device identity", style = type.subtitle)
-        DropText(nodeId, style = type.bodyStrong, fontFamily = FontFamily.Monospace)
-        DropText(
-            "This ID is derived from a public key. Its matching private key stays inside Android Keystore and is not exported.",
-            style = type.caption, color = secondary
+    val groupGap = DropSpacing.s
+
+    // 1. This phone: who it is
+    DropSettingsGroup(
+        "This phone",
+        footer = "The ID comes from a public key. Its private key stays inside Android Keystore and is never exported."
+    ) {
+        DropSettingRow(
+            "Device ID", subtitle = nodeId, icon = Icons.Outlined.Badge,
+            trailing = {
+                DropButton(
+                    "Copy", { clipboard.setText(AnnotatedString(nodeId)) },
+                    style = DropButtonStyle.Subtle, enabled = nodeId.startsWith("dl-")
+                )
+            }
         )
-        DropButton(
-            "Copy node ID", { clipboard.setText(AnnotatedString(nodeId)) },
-            style = DropButtonStyle.Secondary, icon = Icons.Outlined.ContentCopy,
-            enabled = nodeId.startsWith("dl-")
-        )
-    }
-    DropCard {
-        val clipboardForEvents = LocalClipboardManager.current
-        DropText("Hosting activity", style = type.subtitle)
-        DropText(
-            "A record of what the app and Android did while hosting: going to the background, screen off, pauses and restarts. If hosting stops unexpectedly, email it to ${Support.EMAIL}.",
-            style = type.caption, color = secondary
-        )
-        DropText(
-            if (host.events.isBlank()) "Nothing recorded yet." else host.events.lines().filter { it.isNotBlank() }.takeLast(14).joinToString("\n"),
-            style = type.caption, fontFamily = FontFamily.Monospace
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
-            DropButton(
-                "Email log", { Support.report(context, "DropLink hosting log", host.events) },
-                Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.Email, enabled = host.events.isNotBlank()
+        DropRowDivider()
+        DropExpandableRow("Certificate fingerprint", Icons.Outlined.Fingerprint, subtitle = "SHA-256") {
+            DropCodeBox(host.fingerprint)
+            DropText(
+                "Compare this with the certificate details your browser shows before trusting this phone.",
+                style = type.caption, color = secondary
             )
-            DropButton("Copy", { clipboardForEvents.setText(AnnotatedString(host.events)) }, style = DropButtonStyle.Subtle, icon = Icons.Outlined.ContentCopy, enabled = host.events.isNotBlank())
-            DropButton("Refresh", host.onRefreshEvents, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Refresh)
-            DropButton("Clear", host.onClearEvents, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Delete)
         }
     }
-    DropCard {
-        DropText("Keep hosting reliable", style = type.subtitle)
-        DropText(
-            if (host.batteryRestricted) {
-                "Battery optimization is on for DropLink, so Android may pause hosting when the screen is off or the app is in the background."
-            } else {
-                "Battery optimization is off for DropLink. Good."
-            },
-            style = type.body
+
+    Spacer(Modifier.height(groupGap))
+
+    // 2. Hosting: how the server behaves
+    DropSettingsGroup(
+        "Hosting",
+        footer = "Keep Battery Saver and Data Saver off while hosting. They make Android pause background apps, so other devices lose the connection when you leave DropLink."
+    ) {
+        DropSettingRow(
+            "Battery optimization",
+            subtitle = if (host.batteryRestricted) "On. Android may pause hosting in the background." else "Off. Hosting can keep running.",
+            icon = Icons.Outlined.BatteryChargingFull,
+            onClick = host.onOpenBatterySettings,
+            trailing = { DropChevron() }
         )
-        DropText(
-            "Keep Battery Saver and Data Saver off while hosting. They make Android pause background apps, so other devices lose the connection when you leave DropLink.",
-            style = type.caption, color = secondary
+        DropRowDivider()
+        DropSwitchRow(
+            "Notification sound",
+            checked = host.notificationSound, onCheckedChange = host.onNotificationSoundChange,
+            subtitle = "Plays for pairing requests and files. Follows your notification volume and Do Not Disturb.",
+            icon = Icons.Outlined.NotificationsNone
         )
-        DropButton("Open battery settings", host.onOpenBatterySettings, style = DropButtonStyle.Secondary, icon = Icons.Outlined.Settings)
+        DropRowDivider()
+        DropSwitchRow(
+            "Testing mode (HTTP)",
+            checked = host.useHttp, onCheckedChange = host.onUseHttpChange, enabled = !host.isHosting,
+            subtitle = if (host.isHosting) "Stop hosting to change this." else "Turns encryption off. Only for finding problems on a network you control.",
+            icon = Icons.Outlined.Science
+        )
     }
-    DropCard {
-        DropText("Notifications", style = type.subtitle)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                DropText("Notification sound", style = type.bodyStrong)
-                DropText("Play the DropLink sound for pairing requests, incoming files and received files. It follows your phone's notification volume and Do Not Disturb.", style = type.caption, color = secondary)
-            }
-            Switch(checked = host.notificationSound, onCheckedChange = host.onNotificationSoundChange)
-        }
-    }
-    DropCard {
-        DropText("Connection mode", style = type.subtitle)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                DropText("Testing mode (HTTP)", style = type.bodyStrong)
-                DropText("Turns encryption off. Use only to find problems on a network you control.", style = type.caption, color = secondary)
-            }
-            Switch(checked = host.useHttp, onCheckedChange = host.onUseHttpChange, enabled = !host.isHosting)
-        }
-        if (host.isHosting) DropText("Stop hosting to change this.", style = type.caption, color = secondary)
-    }
-    DropCard {
-        DropText("Trusted devices", style = type.subtitle)
+
+    Spacer(Modifier.height(groupGap))
+
+    // 3. Devices: who may connect and send
+    DropSettingsGroup("Trusted devices") {
         if (pairing.trusted.isEmpty()) {
-            DropText("No devices are paired yet. When a browser asks to connect, approve it from the Home screen.", style = type.caption, color = secondary)
+            DropSettingRow(
+                "No devices paired yet", icon = Icons.Outlined.Devices,
+                subtitle = "When a browser asks to connect, approve it from Home."
+            )
         }
-        pairing.trusted.forEach { device ->
-            Column(verticalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        DropText(device.name, style = type.bodyStrong)
-                        DropText("Paired ${DateFormat.getDateInstance().format(Date(device.createdAt))}", style = type.caption, color = secondary)
-                    }
-                    DropButton("Revoke", { pairing.onRevoke(device.id) }, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Delete)
-                }
+        pairing.trusted.forEachIndexed { index, device ->
+            if (index > 0) DropRowDivider(inset = false)
+            DropSettingRow(
+                device.name, icon = Icons.Outlined.Devices,
+                subtitle = "Paired ${DateFormat.getDateInstance().format(Date(device.createdAt))}",
+                trailing = { DropButton("Revoke", { pairing.onRevoke(device.id) }, style = DropButtonStyle.Subtle) }
+            )
+            Column(
+                Modifier.padding(start = DropSpacing.l, end = DropSpacing.l, bottom = DropSpacing.l),
+                verticalArrangement = Arrangement.spacedBy(DropSpacing.s)
+            ) {
                 DropText("Files this device sends to your phone", style = type.caption, color = secondary)
-                Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
-                    listOf(UploadPolicy.Ask to "Ask me", UploadPolicy.Always to "Always", UploadPolicy.Blocked to "Block").forEach { (policy, label) ->
-                        DropButton(
-                            label, { pairing.onSetUploadPolicy(device.id, policy) }, Modifier.weight(1f),
-                            if (device.uploads == policy) DropButtonStyle.Primary else DropButtonStyle.Secondary
-                        )
-                    }
-                }
-                HorizontalDivider(color = DropTheme.colors.stroke)
+                DropSegmented(
+                    listOf(UploadPolicy.Ask to "Ask me", UploadPolicy.Always to "Always", UploadPolicy.Blocked to "Block"),
+                    selected = device.uploads,
+                    onSelect = { pairing.onSetUploadPolicy(device.id, it) }
+                )
             }
         }
     }
-    DropCard {
-        DropText("Certificate fingerprint (SHA-256)", style = type.subtitle)
-        DropText(host.fingerprint, style = type.caption, fontFamily = FontFamily.Monospace)
-        DropText("Compare this with the certificate details your browser shows before trusting this phone.", style = type.caption, color = secondary)
+
+    Spacer(Modifier.height(groupGap))
+
+    // 4. Activity: the log, folded away until needed
+    DropSettingsGroup("Diagnostics") {
+        DropExpandableRow("Hosting activity", Icons.Outlined.History, subtitle = "Pauses, restarts and background changes") {
+            DropText(
+                "If hosting stops unexpectedly, email this log to ${Support.EMAIL}.",
+                style = type.caption, color = secondary
+            )
+            DropCodeBox(
+                if (host.events.isBlank()) "Nothing recorded yet."
+                else host.events.lines().filter { it.isNotBlank() }.takeLast(14).joinToString("\n")
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+                DropButton(
+                    "Email log", { Support.report(context, "DropLink hosting log", host.events) },
+                    Modifier.weight(1f), DropButtonStyle.Primary, Icons.Outlined.Email, enabled = host.events.isNotBlank()
+                )
+                DropButton(
+                    "Copy", { clipboard.setText(AnnotatedString(host.events)) },
+                    Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.ContentCopy, enabled = host.events.isNotBlank()
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+                DropButton("Refresh", host.onRefreshEvents, Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.Refresh)
+                DropButton("Clear", host.onClearEvents, Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.Delete)
+            }
+        }
     }
-    DropCard {
-        DropText("Coming soon", style = type.subtitle)
-        listOf(
-            "Live streaming: watch a video file as the phone plays it",
-            "Live camera: use the phone as a CCTV camera",
-            "Remote presentation: control slides on a big screen from the phone",
-            "Send and receive files: send to one, two or everyone connected; people accept, or turn on auto-accept",
-            "People: see who is connected, send messages, files and attachments",
-            "Feedback: visitors write to you and you reply",
-            "A richer device list with more details about each device"
-        ).forEach { DropText("•  $it", style = type.caption, color = secondary) }
+
+    Spacer(Modifier.height(groupGap))
+
+    // 5. What is next
+    DropSettingsGroup("Roadmap") {
+        DropExpandableRow("Coming soon", Icons.Outlined.AutoAwesome, subtitle = "What is planned for DropLink") {
+            listOf(
+                "Live streaming: watch a video file as the phone plays it",
+                "Live camera: use the phone as a CCTV camera",
+                "Remote presentation: control slides on a big screen from the phone",
+                "Send and receive files: send to one, two or everyone connected; people accept, or turn on auto-accept",
+                "People: see who is connected, send messages, files and attachments",
+                "Feedback: visitors write to you and you reply",
+                "A richer device list with more details about each device"
+            ).forEach { DropText("\u2022  $it", style = type.caption, color = secondary) }
+        }
     }
-    DropCard {
-        DropText("About", style = type.subtitle)
-        DropText("DropLink ${BuildConfig.VERSION_NAME}", style = type.body)
-        DropText("Your phone. Your server. Your network.", style = type.caption, color = secondary)
-        DropText("DropLink is free and open source. If it is useful to you, you can support its development.", style = type.caption, color = secondary)
-        DropButton("Support DropLink on Ko-fi", { Support.openUrl(context, Support.KOFI) }, Modifier.fillMaxWidth(), DropButtonStyle.Primary, Icons.Outlined.FavoriteBorder)
-        DropButton("Send feedback", { Support.email(context, "DropLink feedback", "") }, Modifier.fillMaxWidth(), DropButtonStyle.Secondary, Icons.Outlined.Email)
-        DropButton("Report an issue on GitHub", { Support.openUrl(context, Support.ISSUES) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)
-        DropButton("Privacy Policy", { Support.openUrl(context, Support.PRIVACY) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)
-        DropButton("Source code and license", { Support.openUrl(context, Support.REPO) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)
+
+    Spacer(Modifier.height(groupGap))
+
+    // 6. About and support
+    DropSettingsGroup(
+        "About",
+        footer = "DropLink is free and open source. Your phone. Your server. Your network."
+    ) {
+        DropSettingRow(
+            "DropLink", icon = Icons.Outlined.Info,
+            trailing = { DropText("v${BuildConfig.VERSION_NAME}", style = type.caption, color = secondary) }
+        )
+        DropRowDivider()
+        DropLinkRow("Support on Ko-fi", Icons.Outlined.FavoriteBorder, { Support.openUrl(context, Support.KOFI) }, subtitle = "Help keep DropLink growing")
+        DropRowDivider()
+        DropLinkRow("Send feedback", Icons.Outlined.Email, { Support.email(context, "DropLink feedback", "") })
+        DropRowDivider()
+        DropLinkRow("Report an issue", Icons.Outlined.BugReport, { Support.openUrl(context, Support.ISSUES) }, subtitle = "Opens GitHub")
+        DropRowDivider()
+        DropLinkRow("Privacy Policy", Icons.Outlined.PrivacyTip, { Support.openUrl(context, Support.PRIVACY) })
+        DropRowDivider()
+        DropLinkRow("Source code and license", Icons.Outlined.Code, { Support.openUrl(context, Support.REPO) })
     }
 }
 
@@ -659,7 +710,7 @@ private fun ScreenScaffold(
     Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier.widthIn(max = 880.dp).fillMaxWidth().padding(horizontal = edge, vertical = DropSpacing.xl),
-            verticalArrangement = Arrangement.spacedBy(DropSpacing.l)
+            verticalArrangement = Arrangement.spacedBy(DropSpacing.m + 2.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (showLogo) {
@@ -676,15 +727,15 @@ private fun ScreenScaffold(
     }
 }
 
-/** Windows 11 style navigation pane for tablets and large screens. */
+/** Navigation pane for tablets and large screens: soft rounded selection, no hard edges. */
 @Composable
 private fun NavigationPane(current: Destination, onSelect: (Destination) -> Unit) {
     val c = DropTheme.colors
     Column(
-        modifier = Modifier.width(240.dp).fillMaxHeight().padding(DropSpacing.m),
+        modifier = Modifier.width(248.dp).fillMaxHeight().padding(DropSpacing.m),
         verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)
     ) {
-        Row(Modifier.padding(DropSpacing.s), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = DropSpacing.m, vertical = DropSpacing.m), verticalAlignment = Alignment.CenterVertically) {
             DropLogo(Modifier.size(32.dp))
             DropText("DropLink", style = DropTheme.type.subtitle, modifier = Modifier.padding(start = DropSpacing.m))
         }
@@ -694,52 +745,63 @@ private fun NavigationPane(current: Destination, onSelect: (Destination) -> Unit
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 44.dp)
-                    .clip(RoundedCornerShape(DropRadius.small))
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(DropRadius.medium))
                     .background(if (selected) c.subtleSelected else androidx.compose.ui.graphics.Color.Transparent)
                     .selectable(selected = selected, onClick = { onSelect(item) }, role = Role.Tab)
-                    .padding(horizontal = DropSpacing.s),
+                    .padding(horizontal = DropSpacing.m),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    Modifier.width(3.dp).height(16.dp)
-                        .background(if (selected) c.brand else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(2.dp))
-                )
                 Icon(
                     if (selected) item.selectedIcon else item.icon, contentDescription = null,
-                    tint = if (selected) c.brand else c.textSecondary,
-                    modifier = Modifier.padding(horizontal = DropSpacing.m).size(20.dp)
+                    tint = if (selected) c.textPrimary else c.textSecondary,
+                    modifier = Modifier.padding(end = DropSpacing.m).size(21.dp)
                 )
-                DropText(item.label, style = if (selected) DropTheme.type.bodyStrong else DropTheme.type.body)
+                DropText(
+                    item.label, style = if (selected) DropTheme.type.bodyStrong else DropTheme.type.body,
+                    color = if (selected) c.textPrimary else c.textSecondary
+                )
             }
         }
     }
 }
 
+/** Bottom bar on phones: a soft pill sits behind the active icon. */
 @Composable
 private fun BottomNavigation(current: Destination, onSelect: (Destination) -> Unit) {
     val c = DropTheme.colors
-    Column(Modifier.background(c.background)) {
+    Column(Modifier.background(c.card)) {
         HorizontalDivider(color = c.stroke)
-        Row(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = DropSpacing.xs)) {
             Destination.entries.forEach { item ->
                 val selected = item == current
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 56.dp)
+                        .heightIn(min = 64.dp)
                         .selectable(selected = selected, onClick = { onSelect(item) }, role = Role.Tab)
                         .padding(vertical = DropSpacing.s),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        if (selected) item.selectedIcon else item.icon, contentDescription = null,
-                        tint = if (selected) c.brand else c.textSecondary, modifier = Modifier.size(24.dp)
-                    )
+                    Box(
+                        Modifier
+                            .width(60.dp).height(32.dp)
+                            .background(
+                                if (selected) c.subtleSelected else androidx.compose.ui.graphics.Color.Transparent,
+                                RoundedCornerShape(DropRadius.pill)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (selected) item.selectedIcon else item.icon, contentDescription = null,
+                            tint = if (selected) c.textPrimary else c.textSecondary, modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(2.dp))
                     DropText(
                         item.label, style = DropTheme.type.caption,
-                        color = if (selected) c.brand else c.textSecondary
+                        color = if (selected) c.textPrimary else c.textSecondary
                     )
                 }
             }
