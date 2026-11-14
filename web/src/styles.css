@@ -647,6 +647,9 @@ html { -webkit-text-size-adjust: 100%; }
   .body { grid-template-columns: 220px 1fr; gap: 16px; }
 }
 @media (max-width: 860px) {
+  /* The 1100px rule above comes later in the file than the original phone rule, so say it again here:
+     on phones there is no side navigation, and the content must use the whole width. */
+  .body { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .body { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
   .appbar { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
   .tabbar { left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); }
@@ -685,3 +688,13 @@ html { -webkit-text-size-adjust: 100%; }
   .tabbar { padding: 2px; }
   .tabbar .nav-item { flex-direction: row; gap: 6px; }
 }
+
+/* A bar that stays visible until the files from the phone have been downloaded */
+.inbox-bar { display: flex; align-items: center; gap: 10px; margin: 8px max(14px, env(safe-area-inset-left)) 0; padding: 10px 16px; border-radius: 999px; background: var(--brand); color: var(--on-brand); font-size: calc(13px * var(--ts, 1)); }
+.inbox-bar:hover { color: var(--on-brand); opacity: .92; }
+.inbox-bar > span:nth-child(2) { flex: 1; min-width: 0; }
+.inbox-bar-go { font-weight: 700; }
+@media (min-width: 861px) { .inbox-bar { max-width: 1456px; margin-left: auto; margin-right: auto; width: calc(100% - 44px); } }
+.inbox-status.bad { color: var(--danger); }
+.inbox-status { margin: 0 4px 12px; }
+.banner .grow { flex: 1; }

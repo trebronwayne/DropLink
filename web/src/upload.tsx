@@ -3,6 +3,7 @@ import { api, AuthError, OfflineError, sendFile, UploadError, UploadInfo } from 
 import { useDialog } from './a11y'
 import { Aubree } from './Aubree'
 import { CloseIcon, UploadIcon } from './icons'
+import { useToast } from './toast'
 import { formatSize } from './util'
 
 type Phase = 'choose' | 'waiting' | 'sending' | 'done' | 'denied' | 'blocked' | 'expired' | 'error'
@@ -26,6 +27,7 @@ function errorText(e: unknown): string {
 /** Sending files to the phone: choose files, wait for the phone's owner to approve, then watch them arrive. */
 export function UploadDialog({ initialFiles, onClose }: { initialFiles: File[]; onClose: () => void }) {
   const dialog = useDialog<HTMLElement>(onClose)
+  const toast = useToast()
   const [phase, setPhase] = useState<Phase>('choose')
   const [items, setItems] = useState<Item[]>([])
   const [info, setInfo] = useState<UploadInfo | null>(null)
@@ -64,6 +66,9 @@ export function UploadDialog({ initialFiles, onClose }: { initialFiles: File[]; 
   useEffect(() => {
     if (info?.policy === 'blocked') setPhase('blocked')
   }, [info])
+  useEffect(() => {
+    if (phase === 'done') toast.show(itemsRef.current.length === 1 ? 'File sent to the phone' : `${itemsRef.current.length} files sent to the phone`)
+  }, [phase, toast])
   const firstAdd = useRef(false)
   useEffect(() => {
     if (firstAdd.current || !info || !initialFiles.length) return

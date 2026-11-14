@@ -188,7 +188,8 @@ class LocalServerService : Service() {
         Uploads.onRequest = null
         Uploads.onBatchDone = null
         Uploads.clearAll()
-        io.github.trebronwayne.droplink.core.Outbox.clearAll()
+        // Files on offer survive the quick internal restarts the watchdog does; only a real stop clears them.
+        if (!keepState) io.github.trebronwayne.droplink.core.Outbox.clearAll()
         try { Discovery.stopAdvertising() } catch (_: Throwable) { }
         getSystemService(NotificationManager::class.java).apply {
             cancel(PAIRING_NOTIFICATION_ID)

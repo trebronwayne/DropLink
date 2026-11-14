@@ -15,6 +15,8 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
  */
 export function useInbox(enabled: boolean, onAuthLost: () => void) {
   const [items, setItems] = useState<InboxItem[]>([])
+  const [error, setError] = useState('')
+  const [checkedAt, setCheckedAt] = useState(0)
   const known = useRef<Set<string> | null>(null)
   const toast = useToast()
   const lost = useRef(onAuthLost)
@@ -24,18 +26,27 @@ export function useInbox(enabled: boolean, onAuthLost: () => void) {
     try {
       const list = await api.inbox()
       setItems(list)
+      setError('')
+      setCheckedAt(Date.now())
       if (known.current === null) known.current = new Set(list.map(i => i.id))
       else {
         const fresh = list.filter(i => !known.current!.has(i.id))
         fresh.forEach(i => known.current!.add(i.id))
         if (fresh.length) {
           const n = fresh.reduce((sum, i) => sum + i.files.length, 0)
-          toast.show(`The phone sent you ${n} file${n === 1 ? '' : 's'}`)
+          const text = `The phone sent you ${n} file${n === 1 ? '' : 's'}`
+          toast.show(text)
+          try { navigator.vibrate?.(80) } catch { /* not supported */ }
+          // When the page is in the background, a system notification is the only thing that can reach the visitor.
+          if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+            try { new Notification('DropLink', { body: text, tag: 'droplink-inbox' }) } catch { /* not allowed here */ }
+          }
         }
       }
     } catch (e) {
       if (e instanceof AuthError) lost.current()
-      /* offline: try again on the next round */
+      else setError(e instanceof Error && e.message.startsWith('Request failed') ? e.message : 'Cannot reach the phone right now.')
+      /* try again on the next round */
     }
   }, [toast])
 
@@ -45,16 +56,25 @@ export function useInbox(enabled: boolean, onAuthLost: () => void) {
     let timer = 0
     const loop = async () => {
       await refresh()
-      if (!stop) timer = window.setTimeout(loop, document.hidden ? 15_000 : 4_000)
+      if (!stop) timer = window.setTimeout(loop, document.hidden ? 12_000 : 3_000)
     }
     loop()
     const onVisible = () => { if (!document.hidden) { window.clearTimeout(timer); loop() } }
     document.addEventListener('visibilitychange', onVisible)
-    return () => { stop = true; window.clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible) }
+    window.addEventListener('focus', onVisible)
+    window.addEventListener('online', onVisible)
+    window.addEventListener('pageshow', onVisible)
+    return () => {
+      stop = true; window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+      window.removeEventListener('online', onVisible)
+      window.removeEventListener('pageshow', onVisible)
+    }
   }, [enabled, refresh])
 
   const waiting = items.reduce((n, i) => n + i.files.filter(f => f.state !== 'done').length, 0)
-  return { items, waiting, refresh }
+  return { items, waiting, refresh, error, checkedAt }
 }
 
 function startDownload(batch: string, f: InboxFile) {
@@ -72,8 +92,10 @@ const label = (f: InboxFile) =>
     : f.state === 'interrupted' ? `Stopped at ${Math.round((f.bytes / Math.max(1, f.size)) * 100)}%` : 'Ready'
 
 /** The "From the phone" page. */
-export function InboxPage({ items, onRefresh }: { items: InboxItem[]; onRefresh: () => void }) {
+export function InboxPage({ items, onRefresh, error, checkedAt }: { items: InboxItem[]; onRefresh: () => void; error: string; checkedAt: number }) {
   const [busy, setBusy] = useState(false)
+  const [perm, setPerm] = useState<string>('Notification' in window ? Notification.permission : 'unsupported')
+  const askPermission = async () => { try { setPerm(await Notification.requestPermission()) } catch { /* ignore */ } }
   const downloadAll = async (item: InboxItem) => {
     setBusy(true)
     // A short gap between files, because browsers can refuse several downloads started at the same instant.
@@ -87,6 +109,13 @@ export function InboxPage({ items, onRefresh }: { items: InboxItem[]; onRefresh:
         <h2 className="page-title">From the phone</h2>
         <button className="nm-btn sm" onClick={onRefresh}><RefreshIcon width={18} height={18} /> Refresh</button>
       </div>
+      <p className={'inbox-status small' + (error ? ' bad' : ' muted')} role="status">
+        {error ? `${error} Trying again…` : checkedAt ? `Checking the phone every few seconds. Last checked ${new Date(checkedAt).toLocaleTimeString()}.` : 'Checking the phone…'}
+      </p>
+      {perm === 'default' && (
+        <div className="banner"><span className="grow">Get a notice when the phone sends you files, even if this tab is in the background.</span>
+          <button className="nm-btn sm" onClick={askPermission}>Turn on notifications</button></div>
+      )}
       {items.length === 0 && (
         <div className="empty"><Aubree state="empty" size={140} /><h3>Nothing sent to you yet</h3><p className="muted">When the phone’s owner sends you files, they appear here and you get a notice.</p></div>
       )}

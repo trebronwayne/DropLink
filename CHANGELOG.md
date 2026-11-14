@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixes
+- Web client on phones: content now uses the full width (a tablet-width rule was leaving half the screen empty).
+- Web client: Home is Home again. With one shared folder it opens that folder only when the page first loads.
+- Files sent to a device: the web page checks every 3 seconds and when it comes back to the front, shows a toast, a bar that stays until the files are downloaded, a tab-title count, and optional system notifications. The Inbox page shows when it last checked and any error. Files on offer are no longer lost when the hosting service restarts itself.
+
 ### Devices, sending files, resumable transfers
 - Web client restyled to match the app (same colours, pill buttons, rounded cards) and made more responsive: tablet and big-screen layouts, phone sheets, safe-area spacing, landscape phones.
 - New Devices screen in the app: each paired device shows who it is (name and model typed by the visitor, since browsers hide it), browser and system, when it was paired, and whether it is online or was seen recently. Visitors are asked for their name and device model when they connect, and once later if they paired before.

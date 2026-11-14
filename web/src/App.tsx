@@ -806,7 +806,13 @@ function Shell() {
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
-  useEffect(() => { if (authed && shares.length === 1 && !route.share) location.hash = toHash(shares[0].id, []) }, [authed, shares, route.share])
+  // With a single shared folder, open it once when the page first loads. After that Home really is Home.
+  const autoOpened = useRef(false)
+  useEffect(() => {
+    if (!authed || shares.length !== 1 || autoOpened.current) return
+    autoOpened.current = true
+    if (!route.share) location.hash = toHash(shares[0].id, [])
+  }, [authed, shares, route.share])
 
   // Keyboard shortcuts. They never hijack typing, focused buttons or open dialogs.
   useEffect(() => {
@@ -875,10 +881,11 @@ function Shell() {
   useEffect(() => {
     const names: Record<string, string> = { favorites: 'Favorites', recent: 'Recent', settings: 'Settings', speed: 'Speed test', inbox: 'From the phone' }
     const place = names[route.share] ?? (route.share ? (route.segments[route.segments.length - 1] ?? shares.find(x => x.id === route.share)?.name ?? '') : 'Home')
-    document.title = place ? `${place} · DropLink` : 'DropLink'
+    const badge = inbox.waiting > 0 ? `(${inbox.waiting}) ` : ''
+    document.title = badge + (place ? `${place} · DropLink` : 'DropLink')
     if (firstRoute.current) { firstRoute.current = false; return }
     document.getElementById('content')?.focus({ preventScroll: true })
-  }, [route, shares])
+  }, [route, shares, inbox.waiting])
 
   if (down && !authed) return <Reconnect full onRetry={loadShares} />
   if (authed === null) return <main className="center"><div className="splash"><Aubree state="wait" size={104} /><p className="muted">Connecting…</p></div></main>
@@ -902,6 +909,11 @@ function Shell() {
         <button className="icon-btn hide-narrow" onClick={() => setHelp(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts ( ? )"><HelpIcon /></button>
         <span className="secure small"><ShieldIcon width={16} height={16} /> <span className="hide-narrow">Connected securely</span></span>
       </header>
+      {inbox.waiting > 0 && page !== 'inbox' && (
+        <a className="inbox-bar" href="#/inbox" role="status">
+          <DownloadIcon width={18} height={18} /><span><strong>{inbox.waiting} file{inbox.waiting === 1 ? '' : 's'} from the phone</strong> are ready to download</span><span className="inbox-bar-go">Open</span>
+        </a>
+      )}
       <div className="body">
         <nav className="nav nm-raised" aria-label="Main">
           {nav('#/', 'Home', <HomeIcon />, !route.share)}
@@ -921,7 +933,7 @@ function Shell() {
         <main className="content" id="content" tabIndex={-1}>
           {down && <Reconnect onRetry={loadShares} />}
           {page === 'speed' ? <SpeedTest />
-            : page === 'inbox' ? <InboxPage items={inbox.items} onRefresh={inbox.refresh} />
+            : page === 'inbox' ? <InboxPage items={inbox.items} onRefresh={inbox.refresh} error={inbox.error} checkedAt={inbox.checkedAt} />
             : page === 'settings' ? <Settings theme={theme} display={disp.display} setDisplay={disp.set} install={installEvent} standalone={standalone} onShortcuts={() => setHelp(true)} onIdentify={() => setIdentify(true)} />
             : page === 'favorites' ? <><h2 className="page-title">Favorites</h2><RefList items={fav.list} shares={shares} empty="Tap the star on any file or folder to keep it here." /></>
             : page === 'recent' ? <><h2 className="page-title">Recent</h2><RefList items={recents.list} shares={shares} empty="Files you open will appear here." onClear={recents.clear} /></>
