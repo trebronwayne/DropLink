@@ -53,8 +53,8 @@ object TextParsers {
         }
     }
 
-    private val LRC_TIME = Regex("""\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?]""")
-    private val LRC_OFFSET = Regex("""\[offset:\s*([+-]?\d+)\s*]""", RegexOption.IGNORE_CASE)
+    private val LRC_TIME = Regex("""\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]""")
+    private val LRC_OFFSET = Regex("""\[offset:\s*([+-]?\d+)\s*\]""", RegexOption.IGNORE_CASE)
     private val WORD_TIME = Regex("""<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>""")
 
     private fun fraction(f: String?): Long {
@@ -87,12 +87,12 @@ object TextParsers {
     }
 
     private fun stripLrcTags(text: String): String =
-        text.lines().filterNot { Regex("""^\[(ar|ti|al|by|offset|length|re|ve|au):.*]$""", RegexOption.IGNORE_CASE).matches(it.trim()) }
+        text.lines().filterNot { Regex("""^\[(ar|ti|al|by|offset|length|re|ve|au):.*\]$""", RegexOption.IGNORE_CASE).matches(it.trim()) }
             .joinToString("\n") { WORD_TIME.replace(LRC_TIME.replace(it, ""), "").trimEnd() }.trim()
 
     private val SRT_TIME = Regex("""(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})""")
     private val VTT_TIME = Regex("""(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{1,3})""")
-    private val MARKUP = Regex("""<[^>]*>|\{\\[^}]*}""")
+    private val MARKUP = Regex("""<[^>]*>|\{\\[^}]*\}""")
 
     private fun ms(h: String?, m: String, s: String, f: String) =
         (h?.ifEmpty { null }?.toLong() ?: 0L) * 3_600_000 + m.toLong() * 60_000 + s.toLong() * 1000 + fraction(f)
