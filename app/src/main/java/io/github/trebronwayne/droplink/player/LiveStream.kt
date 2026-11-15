@@ -35,6 +35,7 @@ object LiveStream {
             .put("on", true)
             .put("playing", snap.playing)
             .put("speed", snap.speed.toDouble())
+            .put("index", snap.index)
             .put("positionMs", position)
             .put("durationMs", snap.durationMs)
             .put("now", if (now != null) json(now) else JSONObject.NULL)

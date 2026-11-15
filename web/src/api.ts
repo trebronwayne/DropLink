@@ -89,7 +89,7 @@ export function sendFile(id: string, index: number, file: File, offset: number, 
 export type LiveItem = { id: string; title: string; artist: string; album: string; kind: 'audio' | 'video'; durationMs: number; size: number; mime: string }
 export type LiveState =
   | { on: false }
-  | { on: true; playing: boolean; speed: number; positionMs: number; durationMs: number; now: LiveItem | null; queue: LiveItem[] }
+  | { on: true; playing: boolean; speed: number; index: number; positionMs: number; durationMs: number; now: LiveItem | null; queue: LiveItem[] }
 export type CueTuple = [number, number, string]
 export type LiveText = { lyrics: null | { synced: boolean; cues: CueTuple[]; plain: string; source: string }; subtitles: { name: string; cues: CueTuple[] }[] }
 

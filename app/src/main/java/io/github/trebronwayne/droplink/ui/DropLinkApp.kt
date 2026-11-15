@@ -409,7 +409,7 @@ private fun ScreenHost(
                 DropInfoCard(Icons.Filled.Dns, "Servers", "${network.nodes.size} found nearby", Modifier.weight(1f)) { onNavigate(Destination.Servers) }
             }
         }
-        Destination.Player -> PlayerScreen(player, wide)
+        Destination.Player -> PlayerScreen(player.copy(onOpenSettings = { onNavigate(Destination.Settings) }), wide)
         Destination.Devices -> ScreenScaffold("Devices", "Who is paired, and who is around", wide) {
             DevicesContent(pairing) { id -> onPreselect(id); onNavigate(Destination.Transfers) }
         }
@@ -633,10 +633,57 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi, pl
 
     Spacer(Modifier.height(groupGap))
 
-    // Player: where lyrics and subtitles are looked for
+    // Player: behaviour, lyrics and where lyrics and subtitles are looked for
     val textFolders by io.github.trebronwayne.droplink.player.Sidecars.folders.collectAsStateWithLifecycle()
+    val resumeVideos by io.github.trebronwayne.droplink.player.PlayerPrefs.resumeVideos.collectAsStateWithLifecycle()
+    val keepOn by io.github.trebronwayne.droplink.player.PlayerPrefs.keepScreenOn.collectAsStateWithLifecycle()
+    val lyricsPreview by io.github.trebronwayne.droplink.player.PlayerPrefs.lyricsPreview.collectAsStateWithLifecycle()
+    val lyricsSize by io.github.trebronwayne.droplink.player.PlayerPrefs.lyricsSize.collectAsStateWithLifecycle()
+    val minSeconds by io.github.trebronwayne.droplink.player.PlayerPrefs.minMusicSeconds.collectAsStateWithLifecycle()
+    DropSettingsGroup("Player") {
+        DropSwitchRow(
+            "Continue videos where I stopped", resumeVideos, io.github.trebronwayne.droplink.player.PlayerPrefs::setResumeVideos,
+            subtitle = "A video you left unfinished starts from that point, and a Continue button appears while you browse.", icon = Icons.Outlined.PlayCircle
+        )
+        DropRowDivider()
+        DropSwitchRow(
+            "Keep the screen on for video", keepOn, io.github.trebronwayne.droplink.player.PlayerPrefs::setKeepScreenOn,
+            subtitle = "The screen stays awake while a video plays.", icon = Icons.Outlined.Info
+        )
+        DropRowDivider()
+        DropSwitchRow(
+            "Lyrics next to the cover", lyricsPreview, io.github.trebronwayne.droplink.player.PlayerPrefs::setLyricsPreview,
+            subtitle = "Shows the line being sung beside the cover. Tap it to read all the lyrics.", icon = Icons.Outlined.Info
+        )
+        DropRowDivider()
+        Column(Modifier.padding(DropSpacing.l), verticalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+            DropText("Lyrics text size", style = type.bodyStrong)
+            DropSegmented(listOf(0 to "Small", 1 to "Medium", 2 to "Large"), lyricsSize, io.github.trebronwayne.droplink.player.PlayerPrefs::setLyricsSize)
+        }
+        DropRowDivider(inset = false)
+        Column(Modifier.padding(DropSpacing.l), verticalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+            DropText("Leave out music shorter than", style = type.bodyStrong)
+            DropSegmented(
+                listOf(10 to "10 s", 30 to "30 s", 60 to "1 min"), minSeconds,
+                { io.github.trebronwayne.droplink.player.PlayerPrefs.setMinMusicSeconds(it); player.onRescan() }
+            )
+        }
+        DropRowDivider(inset = false)
+        DropSettingRow(
+            "Clear recent", icon = Icons.Outlined.History, subtitle = "Empties the Recent list. Favorites stay.",
+            trailing = { DropButton("Clear", io.github.trebronwayne.droplink.player.PlayerStore::clearRecent, style = DropButtonStyle.Subtle) }
+        )
+        DropRowDivider()
+        DropSettingRow(
+            "Forget where videos stopped", icon = Icons.Outlined.History, subtitle = "Videos start from the beginning again.",
+            trailing = { DropButton("Forget", io.github.trebronwayne.droplink.player.PlayerStore::clearPositions, style = DropButtonStyle.Subtle) }
+        )
+    }
+
+    Spacer(Modifier.height(groupGap))
+
     DropSettingsGroup(
-        "Player",
+        "Lyrics and subtitles",
         footer = "DropLink looks for a lyrics or subtitle file with the same name as the song or video (Song.mp3 and Song.lrc, Movie.mkv and Movie.en.srt), and also reads lyrics stored inside mp3 and flac files. Android only lets apps read these small files in folders you open to them, so add the folder where yours are."
     ) {
         textFolders.forEach { folder ->

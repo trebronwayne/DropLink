@@ -228,11 +228,11 @@ export function LivePage({ live, receivedAt }: { live: LiveState; receivedAt: nu
         </div>
       </div>
 
-      <aside className="live-next" aria-label="Up next">
-        <h3>Up next</h3>
-        <p className="muted small">The phone controls what plays. This is its queue.</p>
+      <aside className="live-next" aria-label="Live queue">
+        <h3>Live queue</h3>
+        <p className="muted small">Only these play, in this order. The phone’s owner adds to the list.</p>
         <ul>
-          {live.queue.map(item => (
+          {live.queue.slice(Math.max(0, live.index)).map(item => (
             <li key={item.id} className={item.id === now.id ? 'playing' : ''}>
               <span className="live-thumb"><Cover item={item} className="live-thumb-img" /></span>
               <span className="live-next-text"><strong className="ellipsis">{item.title}</strong><span className="muted small ellipsis">{item.kind === 'video' ? 'Video' : item.artist || 'Music'} · {fmt(item.durationMs)}</span></span>

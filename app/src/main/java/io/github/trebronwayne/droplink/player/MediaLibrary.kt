@@ -23,8 +23,6 @@ import kotlinx.coroutines.withContext
 object MediaLibrary {
     val MUSIC_EXT = listOf("mp3", "m4a", "aac", "wav", "flac", "ogg")
     val VIDEO_EXT = listOf("mp4", "mkv", "webm", "3gp", "m4v", "mov")
-    /** Anything shorter is a sound effect, not a song. */
-    private const val MIN_MUSIC_MS = 10_000L
 
     private val _items = MutableStateFlow<List<MediaEntry>>(emptyList())
     private val _loaded = MutableStateFlow(false)
@@ -64,7 +62,7 @@ object MediaLibrary {
         if (Build.VERSION.SDK_INT >= 29) audioCols += MediaStore.Audio.Media.RELATIVE_PATH
         val audioWhere = extClause(MediaStore.Audio.Media.DISPLAY_NAME, MUSIC_EXT) +
             " AND ${MediaStore.Audio.Media.IS_RINGTONE}=0 AND ${MediaStore.Audio.Media.IS_NOTIFICATION}=0 AND ${MediaStore.Audio.Media.IS_ALARM}=0" +
-            " AND ${MediaStore.Audio.Media.DURATION}>=$MIN_MUSIC_MS"
+            " AND ${MediaStore.Audio.Media.DURATION}>=${PlayerPrefs.minMusicSeconds.value * 1000L}"
         resolver.query(audioUri, audioCols.toTypedArray(), audioWhere, null, null)?.use { c ->
             val iId = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val iName = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)

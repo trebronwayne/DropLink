@@ -300,7 +300,7 @@ class MainActivity : ComponentActivity() {
                         onFullscreen = ::changeFullscreen,
                         hosting = hosting,
                         liveOn = liveOn,
-                        onLiveChange = LiveStream::set,
+                        onLiveChange = PlayerHub::setLive,
                         onAddTextFolder = { pickTextFolder.launch(null) },
                         onPickTextFile = { pickTextFile.launch(arrayOf("*/*")) },
                         onRescan = { Sidecars.rescan(); PlayerHub.reloadText(); refreshLibrary() }
