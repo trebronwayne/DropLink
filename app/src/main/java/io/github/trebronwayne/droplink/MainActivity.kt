@@ -297,7 +297,7 @@ class MainActivity : ComponentActivity() {
                         hasAccess = mediaAccess,
                         onGrantAccess = ::requestMediaAccess,
                         fullscreen = fullscreen,
-                        onFullscreen = ::setFullscreen,
+                        onFullscreen = ::changeFullscreen,
                         hosting = hosting,
                         liveOn = liveOn,
                         onLiveChange = LiveStream::set,
@@ -476,7 +476,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Full screen video: landscape, no system bars (swipe from the edge to see them briefly). */
-    private fun setFullscreen(on: Boolean) {
+    private fun changeFullscreen(on: Boolean) {
         fullscreen = on
         requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         val controller = WindowCompat.getInsetsController(window, window.decorView)
