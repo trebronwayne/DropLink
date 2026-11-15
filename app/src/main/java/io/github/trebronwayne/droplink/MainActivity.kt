@@ -57,6 +57,21 @@ import io.github.trebronwayne.droplink.ui.HostUi
 import io.github.trebronwayne.droplink.ui.NetworkUi
 import io.github.trebronwayne.droplink.ui.PairingUi
 import io.github.trebronwayne.droplink.ui.theme.DropLinkTheme
+import android.content.pm.ActivityInfo
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import io.github.trebronwayne.droplink.player.LiveStream
+import io.github.trebronwayne.droplink.player.MediaLibrary
+import io.github.trebronwayne.droplink.player.MediaPlaybackService
+import io.github.trebronwayne.droplink.player.PlayerHub
+import io.github.trebronwayne.droplink.player.Sidecars
+import io.github.trebronwayne.droplink.ui.Destination
+import io.github.trebronwayne.droplink.ui.PlayerUi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,6 +90,42 @@ class MainActivity : ComponentActivity() {
     private var testResults by mutableStateOf(emptyList<String>())
     private var batteryRestricted by mutableStateOf(false)
     private var picked by mutableStateOf(emptyList<PickedFile>())
+
+    private var mediaAccess by mutableStateOf(false)
+    private var fullscreen by mutableStateOf(false)
+    private var openRequest by mutableStateOf<Destination?>(null)
+    private val mediaHandler = Handler(Looper.getMainLooper())
+    private val mediaRefresh = Runnable { refreshLibrary() }
+    // The list updates by itself when a file is added to the phone (for example one that was just received).
+    private val mediaObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            mediaHandler.removeCallbacks(mediaRefresh)
+            mediaHandler.postDelayed(mediaRefresh, 900)
+        }
+    }
+
+    private val mediaPermission =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+            mediaAccess = hasMediaAccess()
+            refreshLibrary()
+        }
+
+    private val pickTextFolder =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                Sidecars.addFolder(this, uri)
+                PlayerHub.reloadText()
+            }
+        }
+
+    private val pickTextFile =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val id = PlayerHub.state.value.current?.id
+            if (uri != null && id != null) {
+                Sidecars.setManual(this, id, uri)
+                PlayerHub.reloadText()
+            }
+        }
 
     private val pickFilesToSend =
         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -118,6 +169,11 @@ class MainActivity : ComponentActivity() {
         Pairing.init(this)
         ReceivedFiles.init(this)
         Presence.init(this)
+        Sidecars.init(this)
+        PlayerHub.connect(this)
+        mediaAccess = hasMediaAccess()
+        if (mediaAccess) refreshLibrary()
+        handleIntent(intent)
         folders = SharedFolders.list(this)
         useHttp = HostingOptions.useHttp(this)
         notificationSound = HostingOptions.notificationSound(this)
@@ -133,6 +189,7 @@ class MainActivity : ComponentActivity() {
                 val received by ReceivedFiles.recent.collectAsStateWithLifecycle()
                 val nodes by Discovery.nodes.collectAsStateWithLifecycle()
                 val presence by Presence.state.collectAsStateWithLifecycle()
+                val liveOn by LiveStream.enabled.collectAsStateWithLifecycle()
                 val receiving by Uploads.live.collectAsStateWithLifecycle()
                 val sent by Outbox.batches.collectAsStateWithLifecycle()
                 LaunchedEffect(hosting, useHttp) { refreshAddresses() }
@@ -234,7 +291,23 @@ class MainActivity : ComponentActivity() {
                     onRemove = Outbox::remove
                 )
                 val network = NetworkUi(nodes.filter { it.nodeId != nodeId }, ::openNode)
-                DropLinkApp(nodeId = nodeId, host = host, files = files, pairing = pairing, network = network, send = send)
+                DropLinkApp(
+                    nodeId = nodeId, host = host, files = files, pairing = pairing, network = network, send = send,
+                    player = PlayerUi(
+                        hasAccess = mediaAccess,
+                        onGrantAccess = ::requestMediaAccess,
+                        fullscreen = fullscreen,
+                        onFullscreen = ::setFullscreen,
+                        hosting = hosting,
+                        liveOn = liveOn,
+                        onLiveChange = LiveStream::set,
+                        onAddTextFolder = { pickTextFolder.launch(null) },
+                        onPickTextFile = { pickTextFile.launch(arrayOf("*/*")) },
+                        onRescan = { Sidecars.rescan(); PlayerHub.reloadText(); refreshLibrary() }
+                    ),
+                    openRequest = openRequest,
+                    onOpenHandled = { openRequest = null }
+                )
             }
         }
         lifecycleScope.launch {
@@ -256,13 +329,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
     override fun onStart() {
         super.onStart()
+        try {
+            contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, mediaObserver)
+            contentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, mediaObserver)
+        } catch (_: Exception) { }
         if (LocalServerService.hostingState.value) EventLog.add("App came to the foreground")
         try { Discovery.startBrowsing(applicationContext) } catch (e: Throwable) { CrashLog.record("Discovery could not start", e) }
     }
 
     override fun onStop() {
+        try { contentResolver.unregisterContentObserver(mediaObserver) } catch (_: Exception) { }
+        PlayerHub.onAppBackground() // videos pause, music carries on
         if (LocalServerService.hostingState.value) EventLog.add("App went to the background")
         try { Discovery.stopBrowsing() } catch (_: Throwable) { }
         super.onStop()
@@ -276,6 +361,8 @@ class MainActivity : ComponentActivity() {
         events = EventLog.read(this)
         batteryRestricted = !getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
         batterySaver = getSystemService(PowerManager::class.java).isPowerSaveMode
+        mediaAccess = hasMediaAccess()
+        if (mediaAccess) refreshLibrary()
     }
 
     private fun runSelfTest() {
@@ -370,6 +457,63 @@ class MainActivity : ComponentActivity() {
         if (Outbox.create(files, targets, everyone = ids == null) != null) picked = emptyList()
     }
 
+    private fun hasMediaAccess(): Boolean =
+        if (android.os.Build.VERSION.SDK_INT >= 33)
+            checkSelfPermission(Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+        else checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestMediaAccess() {
+        mediaPermission.launch(
+            if (android.os.Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_VIDEO)
+            else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        )
+    }
+
+    private fun refreshLibrary() {
+        if (!hasMediaAccess()) return
+        lifecycleScope.launch { MediaLibrary.refresh(applicationContext) }
+    }
+
+    /** Full screen video: landscape, no system bars (swipe from the edge to see them briefly). */
+    private fun setFullscreen(on: Boolean) {
+        fullscreen = on
+        requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (on) {
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    /** The notification opens the player; a music or video file from another app plays in it. */
+    private fun handleIntent(intent: Intent?) {
+        when {
+            intent == null -> return
+            intent.action == MediaPlaybackService.ACTION_OPEN_PLAYER -> openRequest = Destination.Player
+            intent.action == Intent.ACTION_VIEW -> intent.data?.let { playUri(it) }
+        }
+    }
+
+    /** Plays one file in the DropLink player, followed by the rest of the phone's music and video, newest first. */
+    private fun playUri(uri: Uri) {
+        lifecycleScope.launch {
+            val found = withContext(Dispatchers.IO) { MediaLibrary.fromUri(applicationContext, uri) }
+            if (found == null) {
+                Toast.makeText(this@MainActivity, "That file is not music or video this player can open.", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            // Prefer the scanned copy of the same file: it knows the artist, cover and folder.
+            val library = MediaLibrary.items.value
+            val entry = library.firstOrNull { it.displayName == found.displayName && it.size == found.size } ?: found
+            PlayerHub.connect(applicationContext)
+            PlayerHub.play(listOf(entry) + library.filter { it.id != entry.id }, 0)
+            openRequest = Destination.Player
+        }
+    }
+
     /** Opens a received file with another app (a music player for music, a viewer for photos, and so on). */
     private fun openReceived(file: ReceivedFile) {
         val uri: Uri? = try {
@@ -384,8 +528,14 @@ class MainActivity : ComponentActivity() {
             openDownloads()
             return
         }
+        val mime = ReceivedFiles.mimeFor(file.name)
+        if (mime.startsWith("audio/") || mime.startsWith("video/")) {
+            // Music and video open in the DropLink player.
+            playUri(uri)
+            return
+        }
         val view = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, ReceivedFiles.mimeFor(file.name))
+            .setDataAndType(uri, mime)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         try {
             startActivity(Intent.createChooser(view, "Open ${file.name} with"))

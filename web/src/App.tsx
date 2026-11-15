@@ -13,6 +13,7 @@ import { ToastProvider, useToast } from './toast'
 import { useDialog } from './a11y'
 import { UploadDialog } from './upload'
 import { IdentifyDialog, InboxPage, useInbox } from './inbox'
+import { LivePage, useLive } from './live'
 import { browserName, detectModel, guessDeviceName, osName, saveWho, savedWho } from './device'
 import { formatDate, formatSize, formatTime, Kind, kindOf, stripExt } from './util'
 
@@ -20,7 +21,7 @@ type Route = { share: string; segments: string[] }
 type SortKey = 'name' | 'size' | 'modified'
 type ViewMode = 'list' | 'grid'
 type Filter = 'all' | 'image' | 'video' | 'audio' | 'doc'
-const PAGES = ['speed', 'favorites', 'recent', 'settings', 'inbox']
+const PAGES = ['speed', 'favorites', 'recent', 'settings', 'inbox', 'live']
 
 function parseHash(): Route {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent)
@@ -539,10 +540,17 @@ function ContinueCards({ items }: { items: Ref[] }) {
   )
 }
 
-function Home({ shares, fav, recents, onSend, waiting }: { shares: Share[]; fav: ReturnType<typeof useFavorites>; recents: ReturnType<typeof useRecents>; onSend: () => void; waiting: number }) {
+function Home({ shares, fav, recents, onSend, waiting, liveTitle }: { shares: Share[]; fav: ReturnType<typeof useFavorites>; recents: ReturnType<typeof useRecents>; onSend: () => void; waiting: number; liveTitle: string }) {
   return (
     <>
       <ContinueCards items={recents.list} />
+      {liveTitle && (
+        <a className="send-card nm-raised inbox-banner" href="#/live">
+          <Aubree state="celebrate" size={72} />
+          <div className="send-card-text"><strong><span className="live-badge"><span className="dot" /> Live</span> {liveTitle}</strong><span className="muted small">The phone is sharing its player. Join to watch or listen along.</span></div>
+          <span className="nm-btn primary">Join</span>
+        </a>
+      )}
       {waiting > 0 && (
         <a className="send-card nm-raised inbox-banner" href="#/inbox">
           <Aubree state="celebrate" size={72} />
@@ -783,6 +791,7 @@ function Shell() {
   }, [])
   useEffect(() => { loadShares() }, [loadShares])
   const inbox = useInbox(authed === true, () => setAuthed(false))
+  const liveFeed = useLive(authed === true, route.share === 'live', () => setAuthed(false))
   // Ask once for a name and model if the phone does not have them yet (devices paired before this existed).
   useEffect(() => {
     if (authed !== true) return
@@ -879,7 +888,7 @@ function Shell() {
   // Page title and focus follow the route, so screen readers announce where you are.
   const firstRoute = useRef(true)
   useEffect(() => {
-    const names: Record<string, string> = { favorites: 'Favorites', recent: 'Recent', settings: 'Settings', speed: 'Speed test', inbox: 'From the phone' }
+    const names: Record<string, string> = { favorites: 'Favorites', recent: 'Recent', settings: 'Settings', speed: 'Speed test', inbox: 'From the phone', live: 'Live player' }
     const place = names[route.share] ?? (route.share ? (route.segments[route.segments.length - 1] ?? shares.find(x => x.id === route.share)?.name ?? '') : 'Home')
     const badge = inbox.waiting > 0 ? `(${inbox.waiting}) ` : ''
     document.title = badge + (place ? `${place} · DropLink` : 'DropLink')
@@ -919,6 +928,7 @@ function Shell() {
           {nav('#/', 'Home', <HomeIcon />, !route.share)}
           {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}
           {nav('#/recent', 'Recent', <ClockIcon />, page === 'recent')}
+          {liveFeed.live.on && nav('#/live', 'Live player', <PlayIcon />, page === 'live')}
           {nav('#/inbox', 'From the phone', <DownloadIcon />, page === 'inbox', inbox.waiting)}
           <div className="nav-title">Shared folders</div>
           {shares.map(s => (
@@ -933,12 +943,13 @@ function Shell() {
         <main className="content" id="content" tabIndex={-1}>
           {down && <Reconnect onRetry={loadShares} />}
           {page === 'speed' ? <SpeedTest />
+            : page === 'live' ? <LivePage live={liveFeed.live} receivedAt={liveFeed.receivedAt} />
             : page === 'inbox' ? <InboxPage items={inbox.items} onRefresh={inbox.refresh} error={inbox.error} checkedAt={inbox.checkedAt} />
             : page === 'settings' ? <Settings theme={theme} display={disp.display} setDisplay={disp.set} install={installEvent} standalone={standalone} onShortcuts={() => setHelp(true)} onIdentify={() => setIdentify(true)} />
             : page === 'favorites' ? <><h2 className="page-title">Favorites</h2><RefList items={fav.list} shares={shares} empty="Tap the star on any file or folder to keep it here." /></>
             : page === 'recent' ? <><h2 className="page-title">Recent</h2><RefList items={recents.list} shares={shares} empty="Files you open will appear here." onClear={recents.clear} /></>
             : current ? <Browser key={current.id} route={route} shareName={current.name} fav={fav} recents={recents} />
-            : <Home shares={shares} fav={fav} recents={recents} onSend={() => setUploadFiles([])} waiting={inbox.waiting} />}
+            : <Home shares={shares} fav={fav} recents={recents} onSend={() => setUploadFiles([])} waiting={inbox.waiting} liveTitle={liveFeed.live.on ? (liveFeed.live.now?.title ?? 'Waiting for something to play') : ''} />}
         </main>
       </div>
       {connect && <ConnectDialog onClose={() => setConnect(false)} />}
@@ -951,6 +962,7 @@ function Shell() {
       <nav className="tabbar nm-raised" aria-label="Quick navigation">
         {nav('#/', 'Home', <HomeIcon />, !route.share)}
         {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}
+        {liveFeed.live.on && nav('#/live', 'Live', <PlayIcon />, page === 'live')}
         {nav('#/inbox', 'Inbox', <DownloadIcon />, page === 'inbox', inbox.waiting)}
         {nav('#/settings', 'Settings', <SettingsIcon />, page === 'settings')}
       </nav>

@@ -85,6 +85,14 @@ export function sendFile(id: string, index: number, file: File, offset: number, 
   })
 }
 
+/* ---------- live media streaming ---------- */
+export type LiveItem = { id: string; title: string; artist: string; album: string; kind: 'audio' | 'video'; durationMs: number; size: number; mime: string }
+export type LiveState =
+  | { on: false }
+  | { on: true; playing: boolean; speed: number; positionMs: number; durationMs: number; now: LiveItem | null; queue: LiveItem[] }
+export type CueTuple = [number, number, string]
+export type LiveText = { lyrics: null | { synced: boolean; cues: CueTuple[]; plain: string; source: string }; subtitles: { name: string; cues: CueTuple[] }[] }
+
 /* ---------- who this device is, and files the phone sends here ---------- */
 export type DeviceInfo = { id: string; name: string; person: string; model: string; platform: string }
 export type InboxFile = { index: number; name: string; size: number; mime: string; bytes: number; state: 'waiting' | 'downloading' | 'done' | 'interrupted' }
@@ -127,6 +135,16 @@ export const api = {
   },
   async setDevice(person: string, model: string): Promise<void> {
     await request('/api/device/info', { method: 'POST', body: JSON.stringify({ person, model }) }, 1)
+  },
+  /** What the phone's player is doing, while the owner has live streaming on. */
+  async live(): Promise<LiveState> {
+    const r = await fetch('/api/live', { credentials: 'same-origin', cache: 'no-store' })
+    if (r.status === 401) throw new AuthError()
+    if (!r.ok) throw new Error(`Request failed (${r.status})`)
+    return r.json()
+  },
+  async liveText(id: string): Promise<LiveText> {
+    return (await request(`/api/live/text?id=${q(id)}`)).json()
   },
   /** Files the phone's owner sent to this device. Also tells the phone this device is online. */
   async inbox(): Promise<InboxItem[]> {
@@ -189,5 +207,7 @@ export const api = {
 export const fileUrl = (share: string, path: string, download = false) =>
   `/api/file?share=${q(share)}&path=${q(path)}${download ? '&download=1' : ''}`
 export const inboxUrl = (batch: string, index: number) => `/api/inbox/file?batch=${q(batch)}&index=${index}`
+export const liveMediaUrl = (id: string) => `/api/live/media?id=${q(id)}`
+export const liveArtUrl = (id: string) => `/api/live/art?id=${q(id)}`
 export const thumbUrl = (share: string, path: string) => `/api/thumb?share=${q(share)}&path=${q(path)}`
 export const qrUrl = (text: string) => `/api/qr?text=${q(text)}`

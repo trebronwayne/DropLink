@@ -92,3 +92,7 @@ If this policy changes, the new version and date will appear here in the project
 
 Questions, feedback or privacy requests: **trebronwayne@gmail.com**.
 Bugs and feature requests: https://github.com/trebronwayne/DropLink/issues
+
+## Media player and live streaming
+
+The player reads the music and videos on your phone only after you allow access, and only on the phone. Lyrics and subtitle folders you add stay on the phone. When you turn on live streaming, devices you have paired can watch and hear what the phone is playing, and can fetch the items in the phone's current play queue (the media, its cover, and its lyrics and subtitles) until you turn it off. Nothing else in your library is reachable, nothing is sent to the internet, and live streaming is off every time the app starts.

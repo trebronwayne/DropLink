@@ -9,6 +9,9 @@ import io.github.trebronwayne.droplink.core.OutFile
 import io.github.trebronwayne.droplink.core.Outbox
 import io.github.trebronwayne.droplink.core.Partials
 import io.github.trebronwayne.droplink.core.Presence
+import io.github.trebronwayne.droplink.player.LiveStream
+import io.github.trebronwayne.droplink.player.MediaTextRepo
+import io.github.trebronwayne.droplink.player.Thumbs
 import io.github.trebronwayne.droplink.core.NodeIdentity
 import io.github.trebronwayne.droplink.core.Qr
 import io.github.trebronwayne.droplink.core.ReceivedFile
@@ -156,6 +159,50 @@ object DropLinkServer {
                         app, Uri.parse(out.uri), out.size, modified, type, Outbox.serve(batch, device.id, out),
                         etagOf = "\"${batch}-${out.index}-${out.size}\""
                     )
+                }
+                // ---- Live media streaming: the phone's player, mirrored in the browser while the owner has it switched on ----
+                get("/api/live") {
+                    call.device() ?: return@get
+                    call.response.header(HttpHeaders.CacheControl, "no-store")
+                    call.json(HttpStatusCode.OK, LiveStream.stateJson())
+                }
+                get("/api/live/media") {
+                    call.device() ?: return@get
+                    val e = LiveStream.entry(call.request.queryParameters["id"].orEmpty())
+                    if (e == null) {
+                        call.json(HttpStatusCode.NotFound, "{\"error\":\"not_found\"}")
+                        return@get
+                    }
+                    val uri = Uri.parse(e.uri)
+                    val length = if (e.size > 0) e.size else withContext(Dispatchers.IO) {
+                        try { app.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L } catch (_: Exception) { 0L }
+                    }
+                    val type = try { ContentType.parse(e.mime) } catch (_: Exception) { ContentType.Application.OctetStream }
+                    call.response.header(HttpHeaders.AcceptRanges, "bytes")
+                    call.response.header(HttpHeaders.CacheControl, "private, no-cache")
+                    call.response.header("X-Content-Type-Options", "nosniff")
+                    call.respondRange(app, uri, length, e.dateModified * 1000, type, null, etagOf = "\"${e.id}-$length-${e.dateModified}\"")
+                }
+                get("/api/live/art") {
+                    call.device() ?: return@get
+                    val e = LiveStream.entry(call.request.queryParameters["id"].orEmpty())
+                    val bytes = if (e == null) null else Thumbs.jpeg(app, e)
+                    if (bytes == null) {
+                        call.json(HttpStatusCode.NotFound, "{\"error\":\"no_art\"}")
+                        return@get
+                    }
+                    call.response.header(HttpHeaders.CacheControl, "private, max-age=300")
+                    call.respondBytes(bytes, ContentType.Image.JPEG)
+                }
+                get("/api/live/text") {
+                    call.device() ?: return@get
+                    val e = LiveStream.entry(call.request.queryParameters["id"].orEmpty())
+                    if (e == null) {
+                        call.json(HttpStatusCode.NotFound, "{\"error\":\"not_found\"}")
+                        return@get
+                    }
+                    call.response.header(HttpHeaders.CacheControl, "private, max-age=60")
+                    call.json(HttpStatusCode.OK, LiveStream.textJson(MediaTextRepo.load(app, e)))
                 }
                 get("/api/info") {
                     if (!call.authorized()) return@get

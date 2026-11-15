@@ -74,6 +74,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    // Media player: ExoPlayer plays the files, the session service gives background play and the notification controls.
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
+    implementation("androidx.media3:media3-session:1.8.0")
+    implementation("androidx.media3:media3-ui:1.8.0")
     implementation("io.ktor:ktor-server-core:3.0.3")
     implementation("io.ktor:ktor-server-cio:3.0.3")
     implementation("org.slf4j:slf4j-nop:2.0.16")

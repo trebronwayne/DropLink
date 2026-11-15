@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
@@ -76,6 +78,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -123,10 +126,11 @@ import io.github.trebronwayne.droplink.ui.theme.DropTheme
 import java.text.DateFormat
 import java.util.Date
 
-enum class Destination(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
+enum class Destination(val label: String, val icon: ImageVector, val selectedIcon: ImageVector, val inNav: Boolean = true) {
     Home("Home", Icons.Outlined.Home, Icons.Filled.Home),
+    Player("Player", Icons.Outlined.PlayCircle, Icons.Filled.PlayCircle),
     Devices("Devices", Icons.Outlined.Devices, Icons.Filled.Devices),
-    Servers("Servers", Icons.Outlined.Dns, Icons.Filled.Dns),
+    Servers("Servers", Icons.Outlined.Dns, Icons.Filled.Dns, inNav = false),
     Files("Files", Icons.Outlined.Folder, Icons.Filled.Folder),
     Transfers("Transfers", Icons.Outlined.SwapVert, Icons.Filled.SwapVert),
     Settings("Settings", Icons.Outlined.Settings, Icons.Filled.Settings)
@@ -209,8 +213,18 @@ data class FilesUi(
 )
 
 @Composable
-fun DropLinkApp(nodeId: String, host: HostUi, files: FilesUi, pairing: PairingUi, network: NetworkUi, send: SendUi = SendUi()) {
+fun DropLinkApp(
+    nodeId: String, host: HostUi, files: FilesUi, pairing: PairingUi, network: NetworkUi, send: SendUi = SendUi(),
+    player: PlayerUi = PlayerUi(), openRequest: Destination? = null, onOpenHandled: () -> Unit = {}
+) {
     var current by rememberSaveable { mutableStateOf(Destination.Home) }
+    LaunchedEffect(openRequest) {
+        if (openRequest != null) {
+            current = openRequest
+            onOpenHandled()
+        }
+    }
+    val immersive = current == Destination.Player && player.fullscreen
     var preselect by remember { mutableStateOf<String?>(null) }
     val toasts = remember { AubreeToasts() }
     AubreeMoments(toasts, host, files, pairing)
@@ -218,16 +232,22 @@ fun DropLinkApp(nodeId: String, host: HostUi, files: FilesUi, pairing: PairingUi
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             val wide = maxWidth >= 600.dp
             val screen: @Composable () -> Unit = {
-                ScreenHost(current, wide, nodeId, host, files, pairing, network, send, preselect, { preselect = it }) { current = it }
+                ScreenHost(current, wide, nodeId, host, files, pairing, network, send, player, preselect, { preselect = it }) { current = it }
             }
-            if (wide) {
+            if (immersive) {
+                Box(Modifier.fillMaxSize()) { screen() }
+            } else if (wide) {
                 Row(Modifier.fillMaxSize()) {
                     NavigationPane(current) { current = it }
-                    Box(Modifier.weight(1f).fillMaxHeight()) { screen() }
+                    Column(Modifier.weight(1f).fillMaxHeight()) {
+                        Box(Modifier.weight(1f).fillMaxWidth()) { screen() }
+                        if (current != Destination.Player) MiniPlayer({ current = Destination.Player })
+                    }
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
                     Box(Modifier.weight(1f).fillMaxWidth()) { screen() }
+                    if (current != Destination.Player) MiniPlayer({ current = Destination.Player })
                     BottomNavigation(current) { current = it }
                 }
             }
@@ -351,6 +371,7 @@ private fun ScreenHost(
     pairing: PairingUi,
     network: NetworkUi,
     send: SendUi,
+    player: PlayerUi,
     preselect: String?,
     onPreselect: (String?) -> Unit,
     onNavigate: (Destination) -> Unit
@@ -388,6 +409,7 @@ private fun ScreenHost(
                 DropInfoCard(Icons.Filled.Dns, "Servers", "${network.nodes.size} found nearby", Modifier.weight(1f)) { onNavigate(Destination.Servers) }
             }
         }
+        Destination.Player -> PlayerScreen(player, wide)
         Destination.Devices -> ScreenScaffold("Devices", "Who is paired, and who is around", wide) {
             DevicesContent(pairing) { id -> onPreselect(id); onNavigate(Destination.Transfers) }
         }
@@ -401,7 +423,7 @@ private fun ScreenHost(
             TransfersContent(pairing, send, preselect) { onPreselect(null) }
         }
         Destination.Settings -> ScreenScaffold("Settings", "Your phone, hosting and support", wide) {
-            SettingsContent(nodeId, host, pairing, onNavigate)
+            SettingsContent(nodeId, host, pairing, player, onNavigate)
         }
     }
 }
@@ -543,7 +565,7 @@ private fun FilesContent(files: FilesUi) {
 }
 
 @Composable
-private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi, onNavigate: (Destination) -> Unit) {
+private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi, player: PlayerUi, onNavigate: (Destination) -> Unit) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val type = DropTheme.type
@@ -606,6 +628,33 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi, on
             checked = host.useHttp, onCheckedChange = host.onUseHttpChange, enabled = !host.isHosting,
             subtitle = if (host.isHosting) "Stop hosting to change this." else "Turns encryption off. Only for finding problems on a network you control.",
             icon = Icons.Outlined.Science
+        )
+    }
+
+    Spacer(Modifier.height(groupGap))
+
+    // Player: where lyrics and subtitles are looked for
+    val textFolders by io.github.trebronwayne.droplink.player.Sidecars.folders.collectAsStateWithLifecycle()
+    DropSettingsGroup(
+        "Player",
+        footer = "DropLink looks for a lyrics or subtitle file with the same name as the song or video (Song.mp3 and Song.lrc, Movie.mkv and Movie.en.srt), and also reads lyrics stored inside mp3 and flac files. Android only lets apps read these small files in folders you open to them, so add the folder where yours are."
+    ) {
+        textFolders.forEach { folder ->
+            DropSettingRow(
+                io.github.trebronwayne.droplink.player.Sidecars.label(folder), icon = Icons.Outlined.Folder,
+                subtitle = "Searched for lyrics and subtitles",
+                trailing = {
+                    DropButton("Remove", {
+                        io.github.trebronwayne.droplink.player.Sidecars.removeFolder(context, folder)
+                        io.github.trebronwayne.droplink.player.PlayerHub.reloadText()
+                    }, style = DropButtonStyle.Subtle)
+                }
+            )
+            DropRowDivider()
+        }
+        DropLinkRow(
+            "Add a lyrics and subtitles folder", Icons.Outlined.Folder, player.onAddTextFolder,
+            subtitle = if (textFolders.isEmpty()) "Pick the folder that holds your .lrc and .srt files" else "Add another folder"
         )
     }
 
@@ -720,7 +769,7 @@ private fun NavigationPane(current: Destination, onSelect: (Destination) -> Unit
             DropText("DropLink", style = DropTheme.type.subtitle, modifier = Modifier.padding(start = DropSpacing.m))
         }
         Spacer(Modifier.height(DropSpacing.s))
-        Destination.entries.forEach { item ->
+        Destination.entries.filter { it.inNav }.forEach { item ->
             val selected = item == current
             Row(
                 modifier = Modifier
@@ -753,7 +802,7 @@ private fun BottomNavigation(current: Destination, onSelect: (Destination) -> Un
     Column(Modifier.background(c.card)) {
         HorizontalDivider(color = c.stroke)
         Row(Modifier.fillMaxWidth().padding(horizontal = DropSpacing.xs)) {
-            Destination.entries.forEach { item ->
+            Destination.entries.filter { it.inNav }.forEach { item ->
                 val selected = item == current
                 Column(
                     modifier = Modifier

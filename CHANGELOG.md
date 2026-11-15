@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Media player (new)
+- A new Player tab plays music and video. Pinned player on top (video or cover art), controls under it, and the list scrolling below, newest first, music and video together. A mini player keeps controls on every screen.
+- Music only lists common formats (mp3, m4a, aac, wav, flac, ogg) and video mp4, mkv, webm, 3gp, m4v, mov, so ringtones and voice notes stay out. "Newest" is when a file appeared on the phone, so a file you just received is always at the top. The list updates by itself when files are added.
+- Background play with notification and lock-screen controls (Media3 session service). Video pauses when you leave the app; music carries on. Shuffle, repeat, speed 0.5x to 2x, full-screen video.
+- Lyrics: finds a .lrc, .lyr, .srt, .vtt, .ass or .txt with the same name next to the song, and reads lyrics stored inside mp3 (USLT and SYLT frames, including LRC text inside USLT) and flac files. Synced lyrics highlight and scroll with the song; tap a line to seek. Plain lyrics show as text.
+- Subtitles: srt, vtt, ass/ssa next to a video (for example Movie.en.srt), with a track picker. Add folders for lyrics and subtitles in Settings, because Android only lets apps read these files in folders you open to them. Or pick a file by hand for one item.
+- Received music and video open in the DropLink player. DropLink also opens audio and video from other apps.
+- Live media streaming: switch it on in the Player and paired devices get a Live page in their browser that follows the phone (same item, position, play and pause, speed) with lyrics, subtitles and the queue. Off every time the app starts; only the current queue can be fetched.
+
 ### Fixes
 - Home: shared folders are now small explorer-style rows (28px icon, no large background box).
 - Web client on phones: content now uses the full width (a tablet-width rule was leaving half the screen empty).
