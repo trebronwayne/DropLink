@@ -1,0 +1,190 @@
+name: Build signed Android release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semantic version increment (first release is always v1.0.0)
+        required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+concurrency:
+  group: droplink-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign and publish APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # GitHub's ubuntu-latest image already includes the Android SDK (ANDROID_HOME), so the
+      # android-actions/setup-android step is not needed. It tried to install the retired
+      # "tools" package and failed.
+      - name: Install Android platform and build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [[ -z "$SDKMANAGER" ]]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Calculate next semantic version
+        id: version
+        shell: bash
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          latest_tag="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n 1)"
+          if [[ -z "$latest_tag" ]]; then
+            major=1; minor=0; patch=0
+          else
+            if [[ ! "$latest_tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "Latest tag '$latest_tag' is not a valid vMAJOR.MINOR.PATCH tag." >&2
+              exit 1
+            fi
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            patch="${BASH_REMATCH[3]}"
+            if (( major < 1 )); then
+              major=1; minor=0; patch=0
+            else
+              case "$BUMP" in
+                major) major=$((major + 1)); minor=0; patch=0 ;;
+                minor) minor=$((minor + 1)); patch=0 ;;
+                patch) patch=$((patch + 1)) ;;
+                *) echo "Unsupported version bump: $BUMP" >&2; exit 1 ;;
+              esac
+            fi
+          fi
+          if (( major > 2100 || minor > 999 || patch > 999 )); then
+            echo "Version exceeds the configured Android versionCode limits." >&2
+            exit 1
+          fi
+          version="${major}.${minor}.${patch}"
+          version_code=$((major * 1000000 + minor * 1000 + patch))
+          if (( version_code > 2100000000 )); then
+            echo "Computed Android versionCode exceeds the Android limit." >&2
+            exit 1
+          fi
+          echo "name=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "code=$version_code" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$version (versionCode $version_code)"
+
+      - name: Prepare signing key (falls back to a debug build)
+        id: signing
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then missing+=("$name"); fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Signing secrets missing::Missing: ${missing[*]}. Building a DEBUG APK instead. Add all four ANDROID_* secrets for a signed release."
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/droplink-release.jks"
+          echo "DROPLINK_KEYSTORE_PATH=$RUNNER_TEMP/droplink-release.jks" >> "$GITHUB_ENV"
+          echo "DROPLINK_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "DROPLINK_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "DROPLINK_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK
+        shell: bash
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          SIGNED: ${{ steps.signing.outputs.signed }}
+        run: |
+          set -euo pipefail
+          if [[ "$SIGNED" == "true" ]]; then task=":app:assembleRelease"; else task=":app:assembleDebug"; fi
+          gradle --no-daemon clean "$task" \
+            -PdroplinkVersionName="$VERSION_NAME" \
+            -PdroplinkVersionCode="$VERSION_CODE"
+
+      - name: Keep the R8 mapping file
+        if: steps.signing.outputs.signed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-mapping-${{ steps.version.outputs.name }}
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+
+      - name: Verify APK signature and prepare checksum
+        id: artifact
+        shell: bash
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          if [[ "$SIGNED" == "true" ]]; then
+            apk="app/build/outputs/apk/release/app-release.apk"; label="release"
+          else
+            apk="app/build/outputs/apk/debug/app-debug.apk"; label="debug"
+          fi
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$apk"
+          mkdir -p release-artifacts
+          cp "$apk" "release-artifacts/DropLink-${VERSION_NAME}-${label}.apk"
+          cd release-artifacts
+          sha256sum *.apk > SHA256SUMS.txt
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push version tag
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" -m "DropLink $RELEASE_TAG"
+          git push origin "$RELEASE_TAG"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: DropLink ${{ steps.version.outputs.tag }}${{ steps.signing.outputs.signed != 'true' && ' (debug build)' || '' }}
+          prerelease: ${{ steps.signing.outputs.signed != 'true' }}
+          body: ${{ steps.signing.outputs.signed != 'true' && 'Debug build signed with a temporary key because the release signing secrets were not configured. It installs next to a signed release (different app ID) but cannot update a previous debug build; uninstall that first.' || '' }}
+          generate_release_notes: true
+          files: |
+            release-artifacts/*.apk
+            release-artifacts/SHA256SUMS.txt
