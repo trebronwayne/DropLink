@@ -47,6 +47,22 @@
 -keep class * implements kotlinx.coroutines.internal.MainDispatcherFactory { *; }
 -keep class * implements kotlinx.coroutines.CoroutineExceptionHandler { *; }
 
+# Desktop-JVM classes that Ktor mentions (file watching, autoreload, management) but Android does not have.
+# Now that Ktor is kept whole, R8 sees these references, so they must be silenced.
+-dontwarn com.sun.nio.file.**
+-dontwarn com.sun.**
+-dontwarn java.nio.file.**
+-dontwarn javax.naming.**
+-dontwarn java.beans.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn org.apache.log4j.**
+-dontwarn ch.qos.logback.**
+-dontwarn io.netty.**
+-dontwarn org.eclipse.jetty.**
+-dontwarn org.conscrypt.**
+-dontwarn org.openjsse.**
+-dontwarn io.ktor.server.http.content.**
+
 # TEMPORARY, for diagnosis: keeps real class names so the "Email log" crash report is readable without retrace.
 # Delete this line once hosting starts fine in a release build.
 -dontobfuscate
