@@ -62,7 +62,3 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.openjsse.**
 -dontwarn io.ktor.server.http.content.**
-
-# TEMPORARY, for diagnosis: keeps real class names so the "Email log" crash report is readable without retrace.
-# Delete this line once hosting starts fine in a release build.
--dontobfuscate
