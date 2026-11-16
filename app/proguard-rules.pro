@@ -32,3 +32,21 @@
 
 # ---- ZXing (QR codes) ----
 -dontwarn com.google.zxing.**
+
+# ---- Ktor server startup fix (release build crashed in engine.start with "Array has more than one element") ----
+# Ktor builds its application and routing through reflection and generics at start-up. R8 renames or merges the
+# classes it looks at, so the lookup finds more than one match. Keeping Ktor whole is the simplest safe fix.
+-keep class io.ktor.** { *; }
+-keep class kotlin.reflect.** { *; }
+-keep class kotlin.Metadata { *; }
+-keepclassmembers class **$WhenMappings { <fields>; }
+-keep class org.slf4j.** { *; }
+-keepclassmembers class kotlinx.coroutines.** { volatile <fields>; }
+-keep class kotlinx.coroutines.internal.MainDispatcherFactory { *; }
+-keep class kotlinx.coroutines.CoroutineExceptionHandler { *; }
+-keep class * implements kotlinx.coroutines.internal.MainDispatcherFactory { *; }
+-keep class * implements kotlinx.coroutines.CoroutineExceptionHandler { *; }
+
+# TEMPORARY, for diagnosis: keeps real class names so the "Email log" crash report is readable without retrace.
+# Delete this line once hosting starts fine in a release build.
+-dontobfuscate
