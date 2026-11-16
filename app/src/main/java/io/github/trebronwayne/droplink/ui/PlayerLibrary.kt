@@ -170,7 +170,7 @@ private fun MediaRow(e: MediaEntry, isCurrent: Boolean, playing: Boolean, favori
             Modifier.fillMaxWidth().clip(RoundedCornerShape(DropRadius.medium))
                 .background(if (isCurrent) c.subtleSelected else Color.Transparent)
                 .combinedClickable(onClick = onClick, onLongClick = { menu = true })
-                .padding(vertical = 8.dp, start = 6.dp),
+                .padding(start = 6.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)
         ) {
             Box {
