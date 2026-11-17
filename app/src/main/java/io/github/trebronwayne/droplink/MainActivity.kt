@@ -189,6 +189,8 @@ class MainActivity : ComponentActivity() {
                 val received by ReceivedFiles.recent.collectAsStateWithLifecycle()
                 val nodes by Discovery.nodes.collectAsStateWithLifecycle()
                 val presence by Presence.state.collectAsStateWithLifecycle()
+                val cameraRequests by io.github.trebronwayne.droplink.core.CameraHub.requests.collectAsStateWithLifecycle()
+                val cameraNodes by io.github.trebronwayne.droplink.core.CameraHub.nodeState.collectAsStateWithLifecycle()
                 val liveOn by LiveStream.enabled.collectAsStateWithLifecycle()
                 val receiving by Uploads.live.collectAsStateWithLifecycle()
                 val sent by Outbox.batches.collectAsStateWithLifecycle()
@@ -275,6 +277,11 @@ class MainActivity : ComponentActivity() {
                     onUploadApprove = Uploads::approve,
                     onUploadDeny = Uploads::deny,
                     onSetUploadPolicy = Uploads::setPolicy,
+                    cameraRequests = cameraRequests,
+                    cameraNodes = cameraNodes,
+                    onCameraApprove = io.github.trebronwayne.droplink.core.CameraHub::approve,
+                    onCameraDeny = io.github.trebronwayne.droplink.core.CameraHub::deny,
+                    onSetCameraPolicy = io.github.trebronwayne.droplink.core.CameraHub::setPolicy,
                     onOpenDownloads = ::openDownloads,
                     onClearReceived = ReceivedFiles::clear,
                     presence = presence,

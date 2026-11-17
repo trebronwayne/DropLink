@@ -97,6 +97,9 @@ import com.trebronwayne.aubree.compose.Aubree
 import io.github.trebronwayne.droplink.BuildConfig
 import io.github.trebronwayne.droplink.R
 import io.github.trebronwayne.droplink.core.DiscoveredNode
+import io.github.trebronwayne.droplink.core.CameraNode
+import io.github.trebronwayne.droplink.core.CameraPolicy
+import io.github.trebronwayne.droplink.core.CameraRequest
 import io.github.trebronwayne.droplink.core.PairRequest
 import io.github.trebronwayne.droplink.core.ReceivedFile
 import io.github.trebronwayne.droplink.core.ReceivedFiles
@@ -185,7 +188,15 @@ data class PairingUi(
     val onUploadDeny: (String) -> Unit = {},
     val onSetUploadPolicy: (String, UploadPolicy) -> Unit = { _, _ -> },
     val onOpenDownloads: () -> Unit = {},
-    val onClearReceived: () -> Unit = {}
+    val onClearReceived: () -> Unit = {},
+    /** Devices waiting to be allowed to act as a Camera Node. */
+    val cameraRequests: List<CameraRequest> = emptyList(),
+    /** Camera Nodes the phone knows about (use isOnline to see who is sharing now). */
+    val cameraNodes: List<CameraNode> = emptyList(),
+    /** Answer a Camera Node request: (request id, always allow this device). */
+    val onCameraApprove: (String, Boolean) -> Unit = { _, _ -> },
+    val onCameraDeny: (String) -> Unit = {},
+    val onSetCameraPolicy: (String, CameraPolicy) -> Unit = { _, _ -> }
 )
 
 /** A file the owner picked to send. */
@@ -382,6 +393,8 @@ private fun ScreenHost(
             pairing.requests.forEach { PairingRequestCard(it, pairing.onApprove, pairing.onDeny) }
             pairing.uploads.filter { it.status == io.github.trebronwayne.droplink.core.UploadStatus.Pending }
                 .forEach { UploadRequestCard(it, pairing.onUploadApprove, pairing.onUploadDeny) }
+            pairing.cameraRequests.filter { it.status == io.github.trebronwayne.droplink.core.CameraRequestStatus.Pending }
+                .forEach { CameraRequestCard(it, pairing.onCameraApprove, pairing.onCameraDeny) }
             if (host.isHosting && host.batterySaver) {
                 DropCard {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
@@ -395,7 +408,7 @@ private fun ScreenHost(
                     DropButton("Open Battery Saver settings", host.onOpenBatterySaver, style = DropButtonStyle.Secondary, icon = Icons.Outlined.Settings)
                 }
             }
-            if (pairing.requests.isEmpty() && pairing.uploads.none { it.status == io.github.trebronwayne.droplink.core.UploadStatus.Pending }) HostingBuddy(host, pairing)
+            if (pairing.requests.isEmpty() && pairing.cameraRequests.none { it.status == io.github.trebronwayne.droplink.core.CameraRequestStatus.Pending } && pairing.uploads.none { it.status == io.github.trebronwayne.droplink.core.UploadStatus.Pending }) HostingBuddy(host, pairing)
             DropDeviceCard(nodeId, host.isHosting, LocalServerService.PORT, host.fingerprint, host.addresses, host.onStart, host.onStop, host.onRefresh, host.error, host.stats, host.testResults, host.onTest, host.onOpenLocal, !host.useHttp)
             DropSectionTitle("Network workspace")
             val now = rememberNow()
@@ -503,6 +516,30 @@ private fun UploadRequestCard(request: UploadRequest, onApprove: (String, Boolea
             DropButton("Approve once", { onApprove(request.id, false) }, Modifier.weight(1f), DropButtonStyle.Primary)
         }
         DropButton("Always approve from ${request.deviceName}", { onApprove(request.id, true) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)
+    }
+}
+
+@Composable
+private fun CameraRequestCard(request: CameraRequest, onApprove: (String, Boolean) -> Unit, onDeny: (String) -> Unit) {
+    val type = DropTheme.type
+    val secondary = DropTheme.colors.textSecondary
+    DropCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DropSpacing.m)) {
+            Aubree(state = AubreeState.WELCOME, size = 64.dp, contentDescription = "")
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(DropSpacing.xs)) {
+                DropText("Camera Node request", style = type.subtitle)
+                DropText("${request.deviceName} wants to share its camera and microphone with your other devices.", style = type.body)
+            }
+        }
+        DropText(
+            "The video and sound go straight to whoever watches. They do not pass through this phone. Allow only a device you trust.",
+            style = type.caption, color = secondary
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+            DropButton("Deny", { onDeny(request.id) }, Modifier.weight(1f), DropButtonStyle.Secondary)
+            DropButton("Allow this time", { onApprove(request.id, false) }, Modifier.weight(1f), DropButtonStyle.Primary)
+        }
+        DropButton("Always allow ${request.deviceName}", { onApprove(request.id, true) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle)
     }
 }
 
@@ -741,8 +778,7 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi, pl
     DropSettingsGroup("Roadmap") {
         DropExpandableRow("Coming soon", Icons.Outlined.AutoAwesome, subtitle = "What is planned for DropLink") {
             listOf(
-                "Live streaming: watch a video file as the phone plays it",
-                "Live camera: use the phone as a CCTV camera",
+                "More camera tools: motion alerts and scheduled recording for Camera Nodes",
                 "Remote presentation: control slides on a big screen from the phone",
                 "People: see who is connected, send messages, files and attachments",
                 "Feedback: visitors write to you and you reply"

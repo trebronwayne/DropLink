@@ -98,6 +98,8 @@ class TlsFrontend(
         openSockets.add(client)
         try {
             client.tcpNoDelay = true
+            // Bigger socket buffers keep a fast Wi-Fi link full instead of stalling on the default few-KB windows.
+            client.sendBufferSize = 512 * 1024
             // The handshake is done here, on its own thread, so a slow client cannot block new connections.
             client.soTimeout = 10_000
             (client as SSLSocket).startHandshake()
@@ -105,6 +107,8 @@ class TlsFrontend(
 
             val backend = Socket()
             backend.tcpNoDelay = true
+            backend.receiveBufferSize = 512 * 1024   // must be set before connect
+            backend.sendBufferSize = 512 * 1024
             backend.connect(InetSocketAddress(InetAddress.getByName("127.0.0.1"), backendPort), 3_000)
             upstream = backend
             openSockets.add(backend)
@@ -122,7 +126,7 @@ class TlsFrontend(
 
     /** Copies bytes one way. When either direction ends, both sockets are closed. */
     private fun relay(from: Socket, to: Socket) {
-        val buffer = ByteArray(128 * 1024)
+        val buffer = ByteArray(256 * 1024)
         try {
             val input = from.getInputStream()
             val output = to.getOutputStream()

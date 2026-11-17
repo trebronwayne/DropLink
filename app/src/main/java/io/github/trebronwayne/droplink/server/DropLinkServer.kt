@@ -3,6 +3,10 @@ package io.github.trebronwayne.droplink.server
 import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import io.github.trebronwayne.droplink.core.CameraFeed
+import io.github.trebronwayne.droplink.core.CameraHub
+import io.github.trebronwayne.droplink.core.CameraSendResult
+import io.github.trebronwayne.droplink.core.CameraStartResult
 import io.github.trebronwayne.droplink.core.NetworkAddresses
 import io.github.trebronwayne.droplink.core.DeliveryState
 import io.github.trebronwayne.droplink.core.OutFile
@@ -118,6 +122,78 @@ object DropLinkServer {
                     val body = call.readJson(4 * 1024) ?: return@post
                     Pairing.updateInfo(device.id, body.optString("person"), body.optString("model"))
                     call.json(HttpStatusCode.OK, "{\"ok\":true}")
+                }
+                // ---- Camera Nodes: browsers that share their camera and microphone. The phone approves them and relays the
+                // small set-up messages (offer, answer, ICE); the pictures and sound go straight between browsers. ----
+                post("/api/camera/node/start") {
+                    val device = call.device() ?: return@post
+                    val body = call.readJson(4 * 1024) ?: return@post
+                    when (val r = CameraHub.start(device, body.optString("client"), body.optString("name"), parseFeeds(body.optJSONArray("feeds")), body.optBoolean("mic", false))) {
+                        is CameraStartResult.Approved -> call.json(HttpStatusCode.OK, JSONObject().put("status", "approved").put("addr", r.node.addr).toString())
+                        is CameraStartResult.Pending -> call.json(HttpStatusCode.OK, "{\"status\":\"pending\"}")
+                        CameraStartResult.Denied -> call.json(HttpStatusCode.OK, "{\"status\":\"denied\"}")
+                        CameraStartResult.Blocked -> call.json(HttpStatusCode.Forbidden, "{\"error\":\"camera_blocked\"}")
+                        CameraStartResult.TooMany -> call.json(HttpStatusCode.TooManyRequests, "{\"error\":\"too_many_requests\"}")
+                        is CameraStartResult.Invalid -> call.json(HttpStatusCode.BadRequest, JSONObject().put("error", r.reason).toString())
+                    }
+                }
+                post("/api/camera/node/update") {
+                    val device = call.device() ?: return@post
+                    val body = call.readJson(4 * 1024) ?: return@post
+                    val ok = CameraHub.update(
+                        device, body.optString("client"), if (body.has("name")) body.optString("name") else null,
+                        if (body.has("feeds")) parseFeeds(body.optJSONArray("feeds")) else null,
+                        if (body.has("mic")) body.optBoolean("mic") else null, if (body.has("viewers")) body.optInt("viewers") else null
+                    )
+                    call.json(if (ok) HttpStatusCode.OK else HttpStatusCode.NotFound, if (ok) "{\"ok\":true}" else "{\"error\":\"not_started\"}")
+                }
+                post("/api/camera/node/stop") {
+                    val device = call.device() ?: return@post
+                    val body = call.readJson(1024) ?: return@post
+                    CameraHub.stop(device, body.optString("client"))
+                    call.json(HttpStatusCode.OK, "{\"ok\":true}")
+                }
+                get("/api/camera/nodes") {
+                    val device = call.device() ?: return@get
+                    val now = System.currentTimeMillis()
+                    val array = JSONArray()
+                    CameraHub.list(now).forEach { n ->
+                        val feeds = JSONArray()
+                        n.feeds.forEach { feeds.put(JSONObject().put("id", it.id).put("label", it.label)) }
+                        array.put(
+                            JSONObject().put("addr", n.addr).put("name", n.name).put("model", n.model).put("online", n.isOnline(now))
+                                .put("mic", n.mic).put("viewers", n.viewers).put("feeds", feeds).put("startedAt", n.startedAt)
+                                .put("lastSeen", n.lastSeen).put("mine", n.deviceId == device.id)
+                        )
+                    }
+                    call.response.header(HttpHeaders.CacheControl, "no-store")
+                    call.json(HttpStatusCode.OK, JSONObject().put("nodes", array).put("now", now).toString())
+                }
+                get("/api/camera/signal") {
+                    val device = call.device() ?: return@get
+                    val q = call.request.queryParameters
+                    val waitMs = ((q["wait"]?.toLongOrNull() ?: 0L).coerceIn(0L, 25L)) * 1000L
+                    val result = CameraHub.poll(device, q["role"].orEmpty(), q["client"].orEmpty(), q["since"]?.toLongOrNull() ?: 0L, waitMs)
+                    call.response.header(HttpHeaders.CacheControl, "no-store")
+                    if (result == null) {
+                        call.json(HttpStatusCode.NotFound, "{\"error\":\"not_started\"}")
+                        return@get
+                    }
+                    val msgs = JSONArray()
+                    result.first.forEach { m -> msgs.put(JSONObject().put("n", m.n).put("from", m.from).put("session", m.session).put("type", m.type).put("data", m.data)) }
+                    call.json(HttpStatusCode.OK, JSONObject().put("msgs", msgs).put("last", result.second).toString())
+                }
+                post("/api/camera/signal") {
+                    val device = call.device() ?: return@post
+                    val body = call.readJson(CameraHub.MAX_MESSAGE_CHARS + 2048) ?: return@post
+                    val data = body.opt("data")?.let { if (it === JSONObject.NULL) "" else it.toString() }.orEmpty()
+                    when (val r = CameraHub.send(device, body.optString("role"), body.optString("client"), body.optString("to"), body.optString("session"), body.optString("type"), data)) {
+                        CameraSendResult.Sent -> call.json(HttpStatusCode.OK, "{\"ok\":true}")
+                        CameraSendResult.NoTarget -> call.json(HttpStatusCode.NotFound, "{\"error\":\"no_target\"}")
+                        CameraSendResult.TargetOffline -> call.json(HttpStatusCode.Conflict, "{\"error\":\"node_offline\"}")
+                        CameraSendResult.TooFast -> call.json(HttpStatusCode.TooManyRequests, "{\"error\":\"too_fast\"}")
+                        is CameraSendResult.Invalid -> call.json(HttpStatusCode.BadRequest, JSONObject().put("error", r.reason).toString())
+                    }
                 }
                 // ---- Files the phone's owner chose to send to this device ----
                 get("/api/inbox") {
@@ -679,19 +755,35 @@ object DropLinkServer {
      * total and returns false to stop (a newer connection took this file over).
      */
     private suspend fun copyBody(channel: ByteReadChannel, out: OutputStream, expected: Long, onBytes: (Long) -> Boolean = { true }): Long {
-        val buffer = ByteArray(256 * 1024)
+        val buffer = ByteArray(512 * 1024)
         var total = 0L
         while (total < expected) {
             val want = minOf(buffer.size.toLong(), expected - total).toInt()
-            val count = channel.readAvailable(buffer, 0, want)
-            if (count < 0) break
-            if (count == 0) continue
-            out.write(buffer, 0, count)
-            total += count
-            ServerStats.add(count.toLong())
+            // readAvailable hands back whatever has arrived (often only a few KB). Filling the buffer first means a few
+            // big disk writes and progress updates instead of thousands of tiny ones.
+            var filled = 0
+            while (filled < want) {
+                val count = channel.readAvailable(buffer, filled, want - filled)
+                if (count < 0) break
+                filled += count
+            }
+            if (filled == 0) break
+            out.write(buffer, 0, filled)
+            total += filled
+            ServerStats.add(filled.toLong())
             if (!onBytes(total)) break
         }
         return total
+    }
+
+    private fun parseFeeds(array: JSONArray?): List<CameraFeed> {
+        if (array == null) return emptyList()
+        val out = ArrayList<CameraFeed>()
+        for (i in 0 until minOf(array.length(), 2)) {
+            val o = array.optJSONObject(i) ?: continue
+            out += CameraFeed(o.optString("id").take(100), o.optString("label").take(40))
+        }
+        return out
     }
 
     /** Reads a small JSON object. Answers the error itself and returns null if the body is unusable. */

@@ -149,3 +149,10 @@ export const LinkIcon = (p: IconProps) => <svg {...line(p)}><path d="M10 14a4 4 
 export const HelpIcon = (p: IconProps) => <svg {...line(p)}><circle cx="12" cy="12" r="8.500" /><path d="M9.700 9.500a2.400 2.400 0 1 1 3.400 2.200c-.7.400-1.100.900-1.100 1.800M12 17h.01" /></svg>
 export const UploadIcon = (p: IconProps) => <svg {...line(p)}><path d="M12 16V5m0 0-4 4m4-4 4 4M5 19h14" /></svg>
 export const HeartIcon = (p: IconProps) => <svg {...line(p)}><path d="M12 20s-7-4.400-7-10a4 4 0 0 1 7-2.600A4 4 0 0 1 19 10c0 5.600-7 10-7 10Z" /></svg>
+
+export const CameraIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.2l1.2-1.6h6.2L16.3 6h1.2A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5Z" /><circle cx="12" cy="12.5" r="3.4" /></svg>
+export const MicIcon = (p: IconProps) => <svg {...line(p)}><rect x="9" y="3.5" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" /></svg>
+export const MicOffIcon = (p: IconProps) => <svg {...line(p)}><rect x="9" y="3.5" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M4 4l16 16" /></svg>
+export const SwitchCameraIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 12a8 8 0 0 1 13.7-5.6L20 9M20 4.5V9h-4.5M20 12a8 8 0 0 1-13.7 5.6L4 15M4 19.5V15h4.5" /></svg>
+export const RecordIcon = (p: IconProps) => <svg {...line({ strokeWidth: 0, fill: 'currentColor', ...p })}><circle cx="12" cy="12" r="6" /></svg>
+export const StopIcon = (p: IconProps) => <svg {...line({ strokeWidth: 0, fill: 'currentColor', ...p })}><rect x="6.5" y="6.5" width="11" height="11" rx="2" /></svg>

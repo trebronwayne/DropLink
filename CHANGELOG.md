@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Camera Nodes (new)
+- Any paired browser can become a Camera Node and share its camera and microphone: front, back, or both when the device allows it, with a light, standard or high picture. Sound can be turned off. A phone can switch cameras while sharing without dropping viewers.
+- The phone's owner decides per device: **Ask me** (allow this time, always, or deny, with a notification), **Always**, or **Block**. Nodes show on the Devices screen only as a small "camera live" line and a policy switch, so the phone stays uncluttered.
+- Other paired devices open **Cameras** in the web client to see every node, online or offline, and watch one or several at once. They can listen, take snapshots, record moments and go full screen. A node that goes offline shows as offline and comes back by itself.
+- The picture and sound go straight between the two browsers (WebRTC). The phone only approves the node and carries the small set-up messages, so it needs no camera or microphone permission and the app's permissions did not change.
+- The node keeps the screen awake while sharing and tells the phone when the page closes. Revoking a device or blocking it ends its node.
+
 ### Media player (new)
 - A new Player tab plays music and video. Pinned player on top (video or cover art), controls under it, and the list scrolling below, newest first, music and video together. A mini player keeps controls on every screen.
 - Music only lists common formats (mp3, m4a, aac, wav, flac, ogg) and video mp4, mkv, webm, 3gp, m4v, mov, so ringtones and voice notes stay out. "Newest" is when a file appeared on the phone, so a file you just received is always at the top. The list updates by itself when files are added.

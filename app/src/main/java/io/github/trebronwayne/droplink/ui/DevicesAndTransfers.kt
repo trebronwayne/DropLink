@@ -48,6 +48,7 @@ import io.github.trebronwayne.droplink.core.PresenceStatus
 import io.github.trebronwayne.droplink.core.ReceiveState
 import io.github.trebronwayne.droplink.core.ReceivedFiles
 import io.github.trebronwayne.droplink.core.TrustedDevice
+import io.github.trebronwayne.droplink.core.CameraPolicy
 import io.github.trebronwayne.droplink.core.UploadPolicy
 import io.github.trebronwayne.droplink.core.UploadStatus
 import io.github.trebronwayne.droplink.core.formatBytes
@@ -148,7 +149,9 @@ fun DevicesContent(pairing: PairingUi, onSendTo: (String) -> Unit) {
     }
     val online = pairing.trusted.count { Presence.status(pairing.presence[it.id], now) == PresenceStatus.Online }
     DropText(
-        "$online online \u00b7 ${pairing.trusted.size} paired", style = type.caption, color = c.textSecondary,
+        "$online online \u00b7 ${pairing.trusted.size} paired" +
+            pairing.cameraNodes.count { it.isOnline(now) }.let { if (it > 0) " \u00b7 $it camera${if (it == 1) "" else "s"} live" else "" },
+        style = type.caption, color = c.textSecondary,
         modifier = Modifier.padding(horizontal = DropSpacing.xs)
     )
     // Online devices first, then the most recently seen.
@@ -195,6 +198,16 @@ fun DevicesContent(pairing: PairingUi, onSendTo: (String) -> Unit) {
                 listOf(UploadPolicy.Ask to "Ask me", UploadPolicy.Always to "Always", UploadPolicy.Blocked to "Block"),
                 selected = device.uploads,
                 onSelect = { pairing.onSetUploadPolicy(device.id, it) }
+            )
+            val sharing = pairing.cameraNodes.any { it.deviceId == device.id && it.isOnline(now) }
+            DropText(
+                if (sharing) "Camera Node: sharing its camera now" else "Camera Node (shares this device's camera and microphone)",
+                style = type.caption, color = if (sharing) c.accent else c.textSecondary
+            )
+            DropSegmented(
+                listOf(CameraPolicy.Ask to "Ask me", CameraPolicy.Always to "Always", CameraPolicy.Blocked to "Block"),
+                selected = device.camera,
+                onSelect = { pairing.onSetCameraPolicy(device.id, it) }
             )
             Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
                 DropButton(

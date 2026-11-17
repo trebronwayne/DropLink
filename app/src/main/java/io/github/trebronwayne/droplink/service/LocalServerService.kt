@@ -145,6 +145,7 @@ class LocalServerService : Service() {
                 Pairing.onRequest = { request -> notifyPairing(request) }
                 Uploads.onRequest = { request -> notifyUploadRequest(request) }
                 Uploads.onBatchDone = { from, files -> notifyReceived(from, files) }
+                io.github.trebronwayne.droplink.core.CameraHub.onRequest = { request -> notifyCameraRequest(request) }
                 _hostingState.value = true
                 ServerStats.start()
                 acquireLocks()
@@ -188,6 +189,8 @@ class LocalServerService : Service() {
         Uploads.onRequest = null
         Uploads.onBatchDone = null
         Uploads.clearAll()
+        io.github.trebronwayne.droplink.core.CameraHub.onRequest = null
+        io.github.trebronwayne.droplink.core.CameraHub.clearAll()
         // Files on offer survive the quick internal restarts the watchdog does; only a real stop clears them.
         if (!keepState) {
             io.github.trebronwayne.droplink.core.Outbox.clearAll()
@@ -455,6 +458,25 @@ class LocalServerService : Service() {
         } catch (_: SecurityException) { }
     }
 
+    /** A device wants to share its camera. The answer is given inside the app, never from the lock screen. */
+    private fun notifyCameraRequest(request: io.github.trebronwayne.droplink.core.CameraRequest) {
+        val openApp = PendingIntent.getActivity(
+            this, 6, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, requestsChannelId())
+            .setSmallIcon(R.drawable.ic_stat_droplink)
+            .setContentTitle("Camera Node request")
+            .setContentText("${request.deviceName} wants to share its camera and microphone. Open DropLink to answer.")
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        try {
+            getSystemService(NotificationManager::class.java).notify(CAMERA_NOTIFICATION_ID, notification)
+        } catch (_: SecurityException) { }
+    }
+
     private fun notifyReceived(from: String, files: List<ReceivedFile>) {
         val openApp = PendingIntent.getActivity(
             this, 5, Intent(this, MainActivity::class.java),
@@ -533,6 +555,7 @@ class LocalServerService : Service() {
         private const val RECEIVED_QUIET_ID = "droplink_received_quiet"
         private const val PAIRING_NOTIFICATION_ID = 47832
         private const val UPLOAD_NOTIFICATION_ID = 47833
+        private const val CAMERA_NOTIFICATION_ID = 47835
         private const val RECEIVED_NOTIFICATION_ID = 47834
         private const val WATCHDOG_INTERVAL_MS = 10_000L
         private const val KEEPALIVE_MS = 4 * 60_000L

@@ -111,6 +111,7 @@
 | 📁 **Share folders** | Pick folders with Android's own picker. Read-only, nothing is copied or uploaded. |
 | ⚡ **Fast browsing** | Folders open from a single storage query, are cached, and thumbnails load instead of full photos. |
 | 🎵 **Music and video that keep playing** | A persistent player with queue (reorder and clear), shuffle, repeat, speed, sleep timer, resume where you left off and lock-screen controls. Keep browsing while it plays. |
+| 🎥 **Camera Nodes** | Any paired browser can share its camera and microphone (you allow it once, always, or never). Other devices watch live, hear the sound, take snapshots and record moments. The video goes straight between browsers, not through the phone. Read the [Camera Nodes guide](docs/CAMERA_NODES.md). |
 | 🔔 **Notification sound** | Requests and received files play the DropLink sound. One switch in Settings turns it off. |
 | 📥 **Receive files** | Paired devices can send files to the phone, but only after you approve: **once**, or **always** for that device (or block it). They are saved in `Downloads/DropLink`. |
 | 🔐 **Approval-based access** | New devices must be approved on the phone and can be revoked any time. Everything runs over HTTPS. |
@@ -146,8 +147,7 @@ Read the [Host a page guide](docs/HOST_PAGE.md) and try the ready-made [sample s
 
 | | |
 |---|---|
-| 📺 **Live streaming** | Watch a video file as the phone plays it. |
-| 📹 **Live camera** | Use the phone as a CCTV camera. |
+| 🎥 **More camera tools** | Motion alerts and scheduled recording for Camera Nodes. |
 | 🖥️ **Remote presentation** | Control slides on a big screen from the phone (PDF and image slides first; native PowerPoint rendering is a bigger project and comes later). |
 | 📤 **Send and receive files** | Send to one, two or everyone connected. Recipients accept, or turn on auto-accept. People add their name on first visit. |
 | 👥 **People** | See who is connected and send them messages, files and attachments. |
@@ -160,6 +160,7 @@ Follow progress in the [roadmap](docs/ROADMAP.md).
 
 - **No cloud.** No accounts with us, no ads, no analytics, no trackers. Your files never leave your devices.
 - **Encrypted** with HTTPS between devices, **approval required** for every new device, **read-only** shared folders.
+- **Camera Nodes are opt-in.** A device shares its camera only after you allow it, and the picture goes directly to the devices watching, never through the phone or the internet.
 - Logs and crash reports stay on your phone unless you choose to email them.
 
 Read the [Privacy Policy](PRIVACY.md) and the [security model](docs/SECURITY_MODEL.md).

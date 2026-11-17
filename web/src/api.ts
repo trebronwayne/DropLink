@@ -211,3 +211,46 @@ export const liveMediaUrl = (id: string) => `/api/live/media?id=${q(id)}`
 export const liveArtUrl = (id: string) => `/api/live/art?id=${q(id)}`
 export const thumbUrl = (share: string, path: string) => `/api/thumb?share=${q(share)}&path=${q(path)}`
 export const qrUrl = (text: string) => `/api/qr?text=${q(text)}`
+
+/* ---------- camera nodes ---------- */
+export type CameraFeed = { id: string; label: string }
+export type CameraNode = {
+  addr: string; name: string; model: string; online: boolean; mic: boolean; viewers: number; feeds: CameraFeed[]
+  startedAt: number; lastSeen: number; /** True for the node this very device is running. */ mine: boolean
+}
+export type CameraStart = { status: 'approved' | 'pending' | 'denied'; addr?: string }
+export type CameraMessage = { n: number; from: string; session: string; type: string; data: string }
+
+/** The phone said no. `code` is a short machine-readable reason, `status` the HTTP status. */
+export class CameraError extends Error {
+  code: string
+  status: number
+  constructor(code: string, status: number) { super(code); this.code = code; this.status = status }
+}
+
+async function cameraJson<T>(url: string, init?: RequestInit): Promise<T> {
+  let response: Response
+  try { response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init }) } catch (e) {
+    if (init?.signal?.aborted) throw e
+    throw new OfflineError()
+  }
+  if (response.status === 401) throw new AuthError()
+  let body: Record<string, unknown> = {}
+  try { body = await response.json() } catch { /* empty body */ }
+  if (!response.ok) throw new CameraError(String(body.error ?? 'failed'), response.status)
+  return body as T
+}
+
+const postJson = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+export const cameraApi = {
+  nodes: () => cameraJson<{ nodes: CameraNode[]; now: number }>('/api/camera/nodes'),
+  start: (b: { client: string; name: string; feeds: CameraFeed[]; mic: boolean }) => cameraJson<CameraStart>('/api/camera/node/start', postJson(b)),
+  update: (b: { client: string; name?: string; feeds?: CameraFeed[]; mic?: boolean; viewers?: number }) => cameraJson<{ ok: boolean }>('/api/camera/node/update', postJson(b)),
+  stop: (client: string) => cameraJson<{ ok: boolean }>('/api/camera/node/stop', postJson({ client })),
+  /** Long poll: waits on the phone for up to 20 seconds for set-up messages. */
+  poll: (role: 'node' | 'view', client: string, since: number, signal: AbortSignal) =>
+    cameraJson<{ msgs: CameraMessage[]; last: number }>(`/api/camera/signal?role=${role}&client=${q(client)}&since=${since}&wait=20`, { signal }),
+  send: (b: { role: 'node' | 'view'; client: string; to: string; session: string; type: string; data?: unknown }) =>
+    cameraJson<{ ok: boolean }>('/api/camera/signal', postJson(b))
+}

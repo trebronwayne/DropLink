@@ -44,6 +44,20 @@ enum class UploadPolicy(val key: String) {
     }
 }
 
+/** Whether a paired device may act as a Camera Node (share its camera and microphone with the other devices). */
+enum class CameraPolicy(val key: String) {
+    /** Each time the device starts a Camera Node, the phone's owner is asked: allow this time, always, or no. */
+    Ask("ask"),
+    /** This device can start a Camera Node without asking. */
+    Always("always"),
+    /** This device can never act as a Camera Node. */
+    Blocked("blocked");
+
+    companion object {
+        fun from(key: String?): CameraPolicy = values().firstOrNull { it.key == key } ?: Ask
+    }
+}
+
 /** A paired device. Only a hash of its session token is stored, so the file cannot be used to impersonate it. */
 data class TrustedDevice(
     val id: String,
@@ -56,7 +70,9 @@ data class TrustedDevice(
     /** The exact device model, as typed by them ("Samsung Galaxy A14"). Browsers do not reveal it. */
     val model: String = "",
     /** What the browser reported ("Chrome on Android"). */
-    val platform: String = ""
+    val platform: String = "",
+    /** Whether this device may share its camera and microphone as a Camera Node. */
+    val camera: CameraPolicy = CameraPolicy.Ask
 ) {
     /** The best name to show: who it is if known, otherwise the browser's description. */
     val label: String get() = person.ifBlank { name }
@@ -100,7 +116,8 @@ object Pairing {
                     list += TrustedDevice(
                         o.getString("id"), o.getString("name"), o.getString("hash"), o.getLong("created"),
                         UploadPolicy.from(o.optString("uploads", "ask")),
-                        o.optString("person"), o.optString("model"), o.optString("platform")
+                        o.optString("person"), o.optString("model"), o.optString("platform"),
+                        CameraPolicy.from(o.optString("camera", "ask"))
                     )
                 }
             } catch (_: Exception) { }
@@ -172,6 +189,15 @@ object Pairing {
         }
     }
 
+    /** Changes whether this device may act as a Camera Node. Prefer [CameraHub.setPolicy], which also settles waiting requests. */
+    fun setCameraPolicy(deviceId: String, policy: CameraPolicy) {
+        synchronized(lock) {
+            val list = _trusted.value.map { if (it.id == deviceId) it.copy(camera = policy) else it }
+            setTrusted(list)
+            persist(list)
+        }
+    }
+
     /** A device tells the phone who it is (or fixes a typo). Only the device's own session can call this. */
     fun updateInfo(deviceId: String, rawPerson: String, rawModel: String) {
         synchronized(lock) {
@@ -189,6 +215,7 @@ object Pairing {
             setTrusted(list)
             persist(list)
         }
+        CameraHub.forget(deviceId)
     }
 
     fun clearRequests() {
@@ -221,7 +248,7 @@ object Pairing {
         list.forEach {
             array.put(
                 JSONObject().put("id", it.id).put("name", it.name).put("hash", it.tokenHash).put("created", it.createdAt)
-                    .put("uploads", it.uploads.key).put("person", it.person).put("model", it.model).put("platform", it.platform)
+                    .put("uploads", it.uploads.key).put("person", it.person).put("model", it.model).put("platform", it.platform).put("camera", it.camera.key)
             )
         }
         prefs?.edit()?.putString(KEY, array.toString())?.apply()

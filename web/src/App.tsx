@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, AuthError, qrUrl, cachedBrowse, Entry, fileUrl, LockedError, OfflineError, Share, thumbUrl } from './api'
 import {
-  ArrowLeftIcon, ArrowRightIcon, CheckIcon, ChevronRightIcon, ClockIcon, CloseIcon, DownloadIcon, FileTypeIcon, GaugeIcon, GridIcon,
+  ArrowLeftIcon, ArrowRightIcon, CameraIcon, CheckIcon, ChevronRightIcon, ClockIcon, CloseIcon, DownloadIcon, FileTypeIcon, GaugeIcon, GridIcon,
   HeartIcon, HelpIcon, HomeIcon, KeyboardIcon, ListIcon, Logo, OfflineIcon, PlayIcon, PlusIcon, QrIcon, RefreshIcon, SearchIcon, SettingsIcon, ShieldIcon, SortIcon, StarFillIcon, StarIcon,
   UploadIcon, ZoomInIcon, ZoomOutIcon
 } from './icons'
@@ -14,6 +14,7 @@ import { useDialog } from './a11y'
 import { UploadDialog } from './upload'
 import { IdentifyDialog, InboxPage, useInbox } from './inbox'
 import { LivePage, useLive } from './live'
+import { CameraPage, useCameraNode, useCameraNodes } from './camera'
 import { browserName, detectModel, guessDeviceName, osName, saveWho, savedWho } from './device'
 import { formatDate, formatSize, formatTime, Kind, kindOf, stripExt } from './util'
 
@@ -21,7 +22,7 @@ type Route = { share: string; segments: string[] }
 type SortKey = 'name' | 'size' | 'modified'
 type ViewMode = 'list' | 'grid'
 type Filter = 'all' | 'image' | 'video' | 'audio' | 'doc'
-const PAGES = ['speed', 'favorites', 'recent', 'settings', 'inbox', 'live']
+const PAGES = ['speed', 'favorites', 'recent', 'settings', 'inbox', 'live', 'camera']
 
 function parseHash(): Route {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent)
@@ -792,6 +793,8 @@ function Shell() {
   useEffect(() => { loadShares() }, [loadShares])
   const inbox = useInbox(authed === true, () => setAuthed(false))
   const liveFeed = useLive(authed === true, route.share === 'live', () => setAuthed(false))
+  const cameras = useCameraNodes(authed === true, route.share === 'camera', () => setAuthed(false))
+  const camNode = useCameraNode(() => setAuthed(false))
   // Ask once for a name and model if the phone does not have them yet (devices paired before this existed).
   useEffect(() => {
     if (authed !== true) return
@@ -888,7 +891,7 @@ function Shell() {
   // Page title and focus follow the route, so screen readers announce where you are.
   const firstRoute = useRef(true)
   useEffect(() => {
-    const names: Record<string, string> = { favorites: 'Favorites', recent: 'Recent', settings: 'Settings', speed: 'Speed test', inbox: 'From the phone', live: 'Live player' }
+    const names: Record<string, string> = { favorites: 'Favorites', recent: 'Recent', settings: 'Settings', speed: 'Speed test', inbox: 'From the phone', live: 'Live player', camera: 'Cameras' }
     const place = names[route.share] ?? (route.share ? (route.segments[route.segments.length - 1] ?? shares.find(x => x.id === route.share)?.name ?? '') : 'Home')
     const badge = inbox.waiting > 0 ? `(${inbox.waiting}) ` : ''
     document.title = badge + (place ? `${place} · DropLink` : 'DropLink')
@@ -929,6 +932,7 @@ function Shell() {
           {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}
           {nav('#/recent', 'Recent', <ClockIcon />, page === 'recent')}
           {liveFeed.live.on && nav('#/live', 'Live player', <PlayIcon />, page === 'live')}
+          {nav('#/camera', camNode.snap.status === 'live' ? 'Cameras · sharing' : 'Cameras', <CameraIcon />, page === 'camera', cameras.online)}
           {nav('#/inbox', 'From the phone', <DownloadIcon />, page === 'inbox', inbox.waiting)}
           <div className="nav-title">Shared folders</div>
           {shares.map(s => (
@@ -944,6 +948,7 @@ function Shell() {
           {down && <Reconnect onRetry={loadShares} />}
           {page === 'speed' ? <SpeedTest />
             : page === 'live' ? <LivePage live={liveFeed.live} receivedAt={liveFeed.receivedAt} />
+            : page === 'camera' ? <CameraPage nodes={cameras.nodes} loaded={cameras.loaded} failed={cameras.failed} node={camNode} onAuthLost={() => setAuthed(false)} />
             : page === 'inbox' ? <InboxPage items={inbox.items} onRefresh={inbox.refresh} error={inbox.error} checkedAt={inbox.checkedAt} />
             : page === 'settings' ? <Settings theme={theme} display={disp.display} setDisplay={disp.set} install={installEvent} standalone={standalone} onShortcuts={() => setHelp(true)} onIdentify={() => setIdentify(true)} />
             : page === 'favorites' ? <><h2 className="page-title">Favorites</h2><RefList items={fav.list} shares={shares} empty="Tap the star on any file or folder to keep it here." /></>
@@ -963,6 +968,7 @@ function Shell() {
         {nav('#/', 'Home', <HomeIcon />, !route.share)}
         {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}
         {liveFeed.live.on && nav('#/live', 'Live', <PlayIcon />, page === 'live')}
+        {(cameras.online > 0 || camNode.snap.status !== 'off') && nav('#/camera', 'Cameras', <CameraIcon />, page === 'camera', cameras.online)}
         {nav('#/inbox', 'Inbox', <DownloadIcon />, page === 'inbox', inbox.waiting)}
         {nav('#/settings', 'Settings', <SettingsIcon />, page === 'settings')}
       </nav>
