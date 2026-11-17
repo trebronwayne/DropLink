@@ -968,7 +968,7 @@ function Shell() {
         {nav('#/', 'Home', <HomeIcon />, !route.share)}
         {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}
         {liveFeed.live.on && nav('#/live', 'Live', <PlayIcon />, page === 'live')}
-        {(cameras.online > 0 || camNode.snap.status !== 'off') && nav('#/camera', 'Cameras', <CameraIcon />, page === 'camera', cameras.online)}
+        {nav('#/camera', 'Cameras', <CameraIcon />, page === 'camera', cameras.online)}
         {nav('#/inbox', 'Inbox', <DownloadIcon />, page === 'inbox', inbox.waiting)}
         {nav('#/settings', 'Settings', <SettingsIcon />, page === 'settings')}
       </nav>
