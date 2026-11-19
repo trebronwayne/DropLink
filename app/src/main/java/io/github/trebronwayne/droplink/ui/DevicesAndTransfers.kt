@@ -43,6 +43,9 @@ import androidx.compose.ui.unit.dp
 import com.trebronwayne.aubree.AubreeState
 import io.github.trebronwayne.droplink.core.DeliveryState
 import io.github.trebronwayne.droplink.core.OutBatch
+import io.github.trebronwayne.droplink.core.Peer
+import io.github.trebronwayne.droplink.core.PeerTransfer
+import io.github.trebronwayne.droplink.core.PeerTransferState
 import io.github.trebronwayne.droplink.core.Presence
 import io.github.trebronwayne.droplink.core.PresenceStatus
 import io.github.trebronwayne.droplink.core.ReceiveState
@@ -101,7 +104,7 @@ fun presenceText(status: PresenceStatus, lastSeen: Long?, now: Long): String = w
 }
 
 @Composable
-private fun DropChip(text: String, color: Color) {
+internal fun DropChip(text: String, color: Color) {
     Box(
         Modifier.background(color.copy(alpha = 0.14f), RoundedCornerShape(DropRadius.pill)).padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
@@ -325,16 +328,24 @@ private fun SendContent(pairing: PairingUi, send: SendUi, preselect: String?, on
     val now = rememberNow()
     var everyone by rememberSaveable { mutableStateOf(true) }
     var chosen by remember { mutableStateOf(setOf<String>()) }
+    var chosenPeers by remember { mutableStateOf(setOf<String>()) }
     LaunchedEffect(preselect) {
         if (preselect != null) {
             everyone = false
-            chosen = setOf(preselect)
+            if (preselect.startsWith("peer:")) {
+                chosen = emptySet()
+                chosenPeers = setOf(preselect.removePrefix("peer:"))
+            } else {
+                chosen = setOf(preselect)
+            }
             onPreselectUsed()
         }
     }
     fun reachable(d: TrustedDevice) = Presence.status(pairing.presence[d.id], now) != PresenceStatus.Offline
     val eligible = pairing.trusted.filter(::reachable)
     val recipients = if (everyone) eligible else eligible.filter { it.id in chosen }
+    val peersReady = send.peers.filter { it.nodeId in send.nearby && send.peerStatus[it.nodeId]?.uploadPolicy != "blocked" }
+    val peerRecipients = peersReady.filter { it.nodeId in chosenPeers }
 
     DropCard {
         DropText("Send files", style = type.subtitle)
@@ -420,16 +431,64 @@ private fun SendContent(pairing: PairingUi, send: SendUi, preselect: String?, on
                 )
             }
         }
+        if (send.peers.isNotEmpty()) {
+            DropRowDivider(inset = false)
+            DropText("Other DropLink phones", style = type.bodyStrong)
+            DropText(
+                "Phones you paired with from Servers. Files go straight from this phone to theirs, with a certificate check, and a stopped send continues where it left off.",
+                style = type.caption, color = c.textSecondary
+            )
+            send.peers.forEachIndexed { i, p ->
+                val st = send.peerStatus[p.nodeId]
+                val nearby = p.nodeId in send.nearby
+                val blocked = st?.uploadPolicy == "blocked"
+                val ok = nearby && !blocked
+                if (i > 0) DropRowDivider(inset = false)
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                        .clickable(enabled = ok) { chosenPeers = if (p.nodeId in chosenPeers) chosenPeers - p.nodeId else chosenPeers + p.nodeId },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = ok && p.nodeId in chosenPeers, onCheckedChange = null, enabled = ok,
+                        colors = CheckboxDefaults.colors(checkedColor = c.accent, checkmarkColor = Color.White, uncheckedColor = c.strokeStrong)
+                    )
+                    Column(Modifier.weight(1f).padding(start = DropSpacing.s)) {
+                        DropText(p.name, style = type.bodyStrong, color = if (ok) c.textPrimary else c.textSecondary, maxLines = 1)
+                        DropText(
+                            when {
+                                !nearby -> "Not on this network right now"
+                                blocked -> "Its owner blocks files from this phone"
+                                st?.uploadPolicy == "always" -> "Accepts files automatically"
+                                else -> "Its owner is asked first"
+                            } + (st?.freeBytes?.takeIf { it >= 0 }?.let { " \u00b7 ${formatBytes(it)} free" } ?: ""),
+                            style = type.caption, color = c.textSecondary
+                        )
+                    }
+                    DropChip(if (nearby) "Nearby" else "Away", if (nearby) c.success else c.offline)
+                }
+            }
+        }
+        val targetCount = recipients.size + peerRecipients.size
         DropButton(
             when {
-                recipients.isEmpty() -> "Send"
-                recipients.size == 1 -> "Send to ${recipients[0].label}"
-                else -> "Send to ${recipients.size} devices"
+                targetCount == 0 -> "Send"
+                targetCount == 1 -> "Send to ${recipients.firstOrNull()?.label ?: peerRecipients[0].name}"
+                else -> "Send to $targetCount"
             },
-            { send.onSend(if (everyone) null else recipients.map { it.id }.toSet()) },
+            {
+                if (peerRecipients.isNotEmpty()) send.onSendPeers(peerRecipients.map { it.nodeId }.toSet(), recipients.isEmpty())
+                if (recipients.isNotEmpty()) send.onSend(if (everyone) null else recipients.map { it.id }.toSet())
+                chosenPeers = emptySet()
+            },
             Modifier.fillMaxWidth(), DropButtonStyle.Primary, Icons.Outlined.FileUpload,
-            enabled = send.picked.isNotEmpty() && recipients.isNotEmpty()
+            enabled = send.picked.isNotEmpty() && targetCount > 0
         )
+    }
+
+    if (send.peerTransfers.isNotEmpty()) {
+        DropSectionTitle("Sent to other phones")
+        send.peerTransfers.forEach { PeerTransferCard(it, send.onPeerCancel, send.onPeerRetry, send.onPeerRemove) }
     }
 
     DropSectionTitle("Sent from this phone")
@@ -502,6 +561,61 @@ private fun BatchCard(batch: OutBatch, onCancel: (String) -> Unit, onRemove: (St
             DropButton("Remove from list", { onRemove(batch.id) }, Modifier.fillMaxWidth(), DropButtonStyle.Secondary, Icons.Outlined.Delete)
         } else {
             DropButton("Stop sharing these files", { onCancel(batch.id) }, Modifier.fillMaxWidth(), DropButtonStyle.Secondary, Icons.Outlined.Close)
+        }
+    }
+}
+
+@Composable
+private fun PeerTransferCard(t: PeerTransfer, onCancel: (String) -> Unit, onRetry: (String) -> Unit, onRemove: (String) -> Unit) {
+    val type = DropTheme.type
+    val c = DropTheme.colors
+    DropCard {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+            Column(Modifier.weight(1f)) {
+                DropText(
+                    "${t.files.size} file${if (t.files.size == 1) "" else "s"} \u00b7 ${formatBytes(t.totalBytes)}",
+                    style = type.subtitle
+                )
+                DropText(
+                    "To ${t.peerName} \u00b7 " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(t.createdAt)),
+                    style = type.caption, color = c.textSecondary, maxLines = 1
+                )
+            }
+            when (t.state) {
+                PeerTransferState.Done -> DropChip("Delivered", c.success)
+                PeerTransferState.Failed -> DropChip("Failed", c.danger)
+                PeerTransferState.Cancelled -> DropChip("Stopped", c.offline)
+                PeerTransferState.WaitingApproval -> DropChip("Waiting", c.accent)
+                PeerTransferState.Connecting -> DropChip("Connecting", c.accent)
+                PeerTransferState.Sending -> DropChip("Sending", c.accent)
+            }
+        }
+        DropProgressBar(
+            if (t.state == PeerTransferState.Done) 1f else fractionOf(t.sentBytes, t.totalBytes),
+            done = t.state == PeerTransferState.Done
+        )
+        val speed = if (t.state == PeerTransferState.Sending && t.bytesPerSecond > 0) " \u00b7 ${formatBytes(t.bytesPerSecond)}/s" else ""
+        DropText(
+            "${percent(t.sentBytes, t.totalBytes)}% \u00b7 ${formatBytes(t.sentBytes)} of ${formatBytes(t.totalBytes)}$speed",
+            style = type.caption, color = c.textSecondary
+        )
+        if (t.message.isNotBlank()) {
+            DropText(t.message, style = type.caption, color = if (t.state == PeerTransferState.Failed) c.danger else c.textSecondary)
+        }
+        if (t.files.size > 1 && !t.state.finished) {
+            t.files.forEach { f ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+                    DropText(f.name, style = type.caption, modifier = Modifier.weight(1f), maxLines = 1)
+                    DropText(if (f.sent >= f.size) "Done" else "${percent(f.sent, f.size)}%", style = type.caption, color = if (f.sent >= f.size) c.success else c.textSecondary)
+                }
+            }
+        }
+        when {
+            !t.state.finished -> DropButton("Stop", { onCancel(t.id) }, Modifier.fillMaxWidth(), DropButtonStyle.Secondary, Icons.Outlined.Close)
+            else -> Row(horizontalArrangement = Arrangement.spacedBy(DropSpacing.s)) {
+                if (t.state != PeerTransferState.Done) DropButton("Try again", { onRetry(t.id) }, Modifier.weight(1f), DropButtonStyle.Primary)
+                DropButton("Remove", { onRemove(t.id) }, Modifier.weight(1f), DropButtonStyle.Secondary, Icons.Outlined.Delete)
+            }
         }
     }
 }

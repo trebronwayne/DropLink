@@ -15,6 +15,7 @@ import { UploadDialog } from './upload'
 import { IdentifyDialog, InboxPage, useInbox } from './inbox'
 import { LivePage, useLive } from './live'
 import { CameraPage, useCameraNode, useCameraNodes } from './camera'
+import { SharingBanner } from './camtools'
 import { browserName, detectModel, guessDeviceName, osName, saveWho, savedWho } from './device'
 import { formatDate, formatSize, formatTime, Kind, kindOf, stripExt } from './util'
 
@@ -794,7 +795,7 @@ function Shell() {
   const inbox = useInbox(authed === true, () => setAuthed(false))
   const liveFeed = useLive(authed === true, route.share === 'live', () => setAuthed(false))
   const cameras = useCameraNodes(authed === true, route.share === 'camera', () => setAuthed(false))
-  const camNode = useCameraNode(() => setAuthed(false))
+  const camNode = useCameraNode(() => setAuthed(false), authed === true)
   // Ask once for a name and model if the phone does not have them yet (devices paired before this existed).
   useEffect(() => {
     if (authed !== true) return
@@ -926,6 +927,9 @@ function Shell() {
           <DownloadIcon width={18} height={18} /><span><strong>{inbox.waiting} file{inbox.waiting === 1 ? '' : 's'} from the phone</strong> are ready to download</span><span className="inbox-bar-go">Open</span>
         </a>
       )}
+      {page !== 'camera' && ['starting', 'waiting', 'live', 'reconnecting'].includes(camNode.snap.status) && (
+        <SharingBanner snap={camNode.snap} onStop={() => void camNode.stop()} onOpen={() => { window.location.hash = '#/camera' }} />
+      )}
       <div className="body">
         <nav className="nav nm-raised" aria-label="Main">
           {nav('#/', 'Home', <HomeIcon />, !route.share)}
@@ -948,7 +952,7 @@ function Shell() {
           {down && <Reconnect onRetry={loadShares} />}
           {page === 'speed' ? <SpeedTest />
             : page === 'live' ? <LivePage live={liveFeed.live} receivedAt={liveFeed.receivedAt} />
-            : page === 'camera' ? <CameraPage nodes={cameras.nodes} loaded={cameras.loaded} failed={cameras.failed} node={camNode} onAuthLost={() => setAuthed(false)} />
+            : page === 'camera' ? <CameraPage nodes={cameras.nodes} loaded={cameras.loaded} failed={cameras.failed} node={camNode} onAuthLost={() => setAuthed(false)} onUpload={files => setUploadFiles(files)} />
             : page === 'inbox' ? <InboxPage items={inbox.items} onRefresh={inbox.refresh} error={inbox.error} checkedAt={inbox.checkedAt} />
             : page === 'settings' ? <Settings theme={theme} display={disp.display} setDisplay={disp.set} install={installEvent} standalone={standalone} onShortcuts={() => setHelp(true)} onIdentify={() => setIdentify(true)} />
             : page === 'favorites' ? <><h2 className="page-title">Favorites</h2><RefList items={fav.list} shares={shares} empty="Tap the star on any file or folder to keep it here." /></>

@@ -103,6 +103,13 @@ object ReceivedFiles {
         return name.ifEmpty { "file" }
     }
 
+    /** Free space where received files are kept, or -1 if unknown. */
+    fun freeBytes(context: Context): Long = try {
+        StatFs((context.getExternalFilesDir(null) ?: context.filesDir).path).availableBytes
+    } catch (_: Exception) {
+        -1L
+    }
+
     /** True if the phone has room for [bytes] plus a safety margin. */
     fun hasSpace(context: Context, bytes: Long): Boolean = try {
         val dir = context.getExternalFilesDir(null) ?: context.filesDir

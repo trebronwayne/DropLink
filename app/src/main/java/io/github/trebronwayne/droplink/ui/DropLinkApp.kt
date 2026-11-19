@@ -211,10 +211,31 @@ data class SendUi(
     /** Send the picked files. A null set means everyone who is online or recently online. */
     val onSend: (Set<String>?) -> Unit = {},
     val onCancel: (String) -> Unit = {},
-    val onRemove: (String) -> Unit = {}
+    val onRemove: (String) -> Unit = {},
+    /** Other DropLink phones this phone is paired with, and which of them are on the network now. */
+    val peers: List<io.github.trebronwayne.droplink.core.Peer> = emptyList(),
+    val nearby: Set<String> = emptySet(),
+    val peerStatus: Map<String, io.github.trebronwayne.droplink.core.PeerStatus> = emptyMap(),
+    val peerTransfers: List<io.github.trebronwayne.droplink.core.PeerTransfer> = emptyList(),
+    /** Send the picked files to other phones. [clearPicked] is true when no browser device is also being sent to. */
+    val onSendPeers: (Set<String>, Boolean) -> Unit = { _, _ -> },
+    val onPeerCancel: (String) -> Unit = {},
+    val onPeerRetry: (String) -> Unit = {},
+    val onPeerRemove: (String) -> Unit = {}
 )
 
-data class NetworkUi(val nodes: List<DiscoveredNode>, val onOpen: (DiscoveredNode) -> Unit)
+data class NetworkUi(
+    val nodes: List<DiscoveredNode>,
+    val onOpen: (DiscoveredNode) -> Unit,
+    val peers: List<io.github.trebronwayne.droplink.core.Peer> = emptyList(),
+    val peerStatus: Map<String, io.github.trebronwayne.droplink.core.PeerStatus> = emptyMap(),
+    val pairing: io.github.trebronwayne.droplink.core.PeerPairing? = null,
+    val onPair: (DiscoveredNode) -> Unit = {},
+    val onCancelPair: () -> Unit = {},
+    val onDismissPair: () -> Unit = {},
+    val onUnpair: (String) -> Unit = {},
+    val onSendTo: (String) -> Unit = {}
+)
 
 data class FilesUi(
     val folders: List<SharedFolder>,
@@ -427,7 +448,7 @@ private fun ScreenHost(
             DevicesContent(pairing) { id -> onPreselect(id); onNavigate(Destination.Transfers) }
         }
         Destination.Servers -> ScreenScaffold("Servers", "DropLink nodes on your network", wide) {
-            ServersContent(network)
+            ServersContent(network) { id -> onPreselect("peer:$id"); onNavigate(Destination.Transfers) }
         }
         Destination.Files -> ScreenScaffold("Files", "Folders you share from this phone", wide) {
             FilesContent(files)
@@ -544,9 +565,34 @@ private fun CameraRequestCard(request: CameraRequest, onApprove: (String, Boolea
 }
 
 @Composable
-private fun ServersContent(network: NetworkUi) {
+private fun ServersContent(network: NetworkUi, onSendTo: (String) -> Unit) {
     val type = DropTheme.type
     val secondary = DropTheme.colors.textSecondary
+    val c = DropTheme.colors
+    network.pairing?.let { p ->
+        DropCard {
+            val failed = p.phase == io.github.trebronwayne.droplink.core.PeerPairing.Phase.Failed
+            val done = p.phase == io.github.trebronwayne.droplink.core.PeerPairing.Phase.Done
+            DropText(
+                when {
+                    done -> "Paired with ${p.name}"
+                    failed -> "Could not pair with ${p.name}"
+                    else -> "Pairing with ${p.name}"
+                },
+                style = type.subtitle
+            )
+            if (p.code.isNotEmpty() && !failed && !done) {
+                DropText(p.code, style = type.title, fontFamily = FontFamily.Monospace)
+                DropText("The owner of ${p.name} must see this same code on their phone and approve it.", style = type.caption, color = secondary)
+            }
+            DropText(p.message, style = type.body, color = if (failed) c.danger else secondary)
+            if (done || failed) {
+                DropButton("Done", network.onDismissPair, Modifier.fillMaxWidth(), DropButtonStyle.Secondary)
+            } else {
+                DropButton("Cancel", network.onCancelPair, Modifier.fillMaxWidth(), DropButtonStyle.Secondary)
+            }
+        }
+    }
     if (network.nodes.isEmpty()) {
         AubreeEmptyState(
             AubreeState.SEARCHING, "Looking for other DropLink nodes",
@@ -554,6 +600,8 @@ private fun ServersContent(network: NetworkUi) {
         )
     } else {
         network.nodes.forEach { node ->
+            val peer = network.peers.firstOrNull { it.nodeId == node.nodeId }
+            val st = network.peerStatus[node.nodeId]
             DropCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     DropIconTile(Icons.Filled.Dns)
@@ -561,6 +609,7 @@ private fun ServersContent(network: NetworkUi) {
                         DropText(node.name, style = type.bodyStrong)
                         DropText("${node.host}:${node.port}", style = type.caption, color = secondary, fontFamily = FontFamily.Monospace)
                     }
+                    if (peer != null) DropChip("Paired", c.success)
                 }
                 if (node.fingerprint.length >= 16) {
                     DropText(
@@ -568,7 +617,44 @@ private fun ServersContent(network: NetworkUi) {
                         style = type.caption, color = secondary, fontFamily = FontFamily.Monospace
                     )
                 }
+                if (peer != null && st != null) {
+                    val parts = buildList {
+                        if (st.cameras > 0) add("${st.cameras} camera${if (st.cameras == 1) "" else "s"} live")
+                        if (st.freeBytes >= 0) add("${io.github.trebronwayne.droplink.core.formatBytes(st.freeBytes)} free")
+                        add(
+                            when (st.uploadPolicy) {
+                                "always" -> "accepts your files automatically"
+                                "blocked" -> "blocks files from this phone"
+                                else -> "asks its owner before accepting"
+                            }
+                        )
+                    }
+                    DropText(parts.joinToString(" \u00b7 "), style = type.caption, color = secondary)
+                }
+                if (peer != null) {
+                    DropButton("Send files", { onSendTo(node.nodeId) }, Modifier.fillMaxWidth(), DropButtonStyle.Primary, Icons.Outlined.SwapVert)
+                    DropButton("Unpair", { network.onUnpair(node.nodeId) }, Modifier.fillMaxWidth(), DropButtonStyle.Subtle, Icons.Outlined.Delete)
+                } else {
+                    DropButton("Pair with this phone", { network.onPair(node) }, Modifier.fillMaxWidth(), DropButtonStyle.Primary, Icons.Outlined.SwapVert)
+                }
                 DropButton("Open in browser", { network.onOpen(node) }, Modifier.fillMaxWidth(), DropButtonStyle.Secondary, Icons.Outlined.OpenInBrowser)
+            }
+        }
+        DropText(
+            "Pair two DropLink phones to send files straight between them. Each phone's owner approves the pairing once. To send both ways, pair from both phones.",
+            style = type.caption, color = secondary
+        )
+    }
+    val away = network.peers.filter { p -> network.nodes.none { it.nodeId == p.nodeId } }
+    if (away.isNotEmpty()) {
+        DropSectionTitle("Paired, not nearby")
+        away.forEach { p ->
+            DropCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    DropIconTile(Icons.Filled.Dns)
+                    DropText(p.name, style = type.bodyStrong, modifier = Modifier.weight(1f).padding(start = DropSpacing.m))
+                    DropButton("Unpair", { network.onUnpair(p.nodeId) }, style = DropButtonStyle.Subtle, icon = Icons.Outlined.Delete)
+                }
             }
         }
     }

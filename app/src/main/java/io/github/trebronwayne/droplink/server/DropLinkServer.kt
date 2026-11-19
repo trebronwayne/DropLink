@@ -283,7 +283,14 @@ object DropLinkServer {
                 get("/api/info") {
                     if (!call.authorized()) return@get
                     val id = withContext(Dispatchers.IO) { NodeIdentity.getOrCreateNodeId(app) }
-                    call.json(HttpStatusCode.OK, JSONObject().put("nodeId", id).put("protocol", 3).toString())
+                    val cameras = CameraHub.list().count { it.isOnline() }
+                    val free = withContext(Dispatchers.IO) { ReceivedFiles.freeBytes(app) }
+                    call.response.header(HttpHeaders.CacheControl, "no-store")
+                    call.json(
+                        HttpStatusCode.OK,
+                        JSONObject().put("nodeId", id).put("protocol", 3).put("name", io.github.trebronwayne.droplink.core.Discovery.displayName())
+                            .put("cameras", cameras).put("freeBytes", free).toString()
+                    )
                 }
                 get("/api/shares") {
                     if (!call.authorized()) return@get

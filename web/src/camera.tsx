@@ -3,6 +3,9 @@ import { AuthError, CameraError, CameraFeed, CameraNode, cameraApi } from './api
 import { Aubree } from './Aubree'
 import { CameraIcon, CloseIcon, ExpandIcon, MicIcon, MicOffIcon, PlusIcon, RecordIcon, StopIcon, SwitchCameraIcon, VolumeIcon, MuteIcon } from './icons'
 import { useToast } from './toast'
+import {
+  AudioMeter, KioskScreen, Sensitivity, SnapshotGallery, addShot, askNotifications, beep, readThumb, saveThumb, systemNotice, useBattery, useMotion
+} from './camtools'
 
 /**
  * Camera Nodes. Any paired browser can share its camera and microphone once the phone's owner allows it. Other
@@ -109,7 +112,7 @@ class SignalLoop {
 /* ------------------------------------------------------------------------------------------------ */
 
 export type Quality = 'low' | 'standard' | 'high'
-export type NodeOptions = { facing: 'user' | 'environment' | 'both'; mic: boolean; quality: Quality; name: string }
+export type NodeOptions = { facing: 'user' | 'environment' | 'both'; mic: boolean; quality: Quality; name: string; mode?: 'video' | 'audio'; talk?: boolean }
 export type NodeStatus = 'off' | 'starting' | 'waiting' | 'live' | 'reconnecting' | 'denied' | 'blocked' | 'error'
 type Facing = 'user' | 'environment'
 
@@ -134,9 +137,27 @@ export type NodeSnapshot = {
   micOn: boolean
   viewers: number
   canFlip: boolean
+  /** Someone watching is talking through this device's speaker. */
+  talking: boolean
+  /** Whether sound from watchers is played here. */
+  speaker: boolean
+  /** False when the browser could not keep the screen awake. */
+  awake: boolean
 }
 
-const EMPTY: NodeSnapshot = { status: 'off', error: '', note: '', feeds: [], hasMic: false, micOn: false, viewers: 0, canFlip: false }
+const EMPTY: NodeSnapshot = { status: 'off', error: '', note: '', feeds: [], hasMic: false, micOn: false, viewers: 0, canFlip: false, talking: false, speaker: true, awake: true }
+
+const AUTO_KEY = 'dl.cam.auto'
+/** The options of a node that starts by itself when DropLink opens on this device, or null. */
+export function readAuto(): NodeOptions | null {
+  try {
+    const raw = localStorage.getItem(AUTO_KEY)
+    return raw ? (JSON.parse(raw) as NodeOptions) : null
+  } catch { return null }
+}
+export function writeAuto(o: NodeOptions | null) {
+  try { if (o) localStorage.setItem(AUTO_KEY, JSON.stringify(o)); else localStorage.removeItem(AUTO_KEY) } catch { /* not remembered */ }
+}
 
 const labelFor = (facing: Facing | 'unknown') => (facing === 'user' ? 'Front' : facing === 'environment' ? 'Back' : 'Camera')
 
@@ -153,6 +174,10 @@ function describe(e: unknown): string {
 }
 
 async function capture(o: NodeOptions): Promise<{ feeds: LocalFeed[]; hasMic: boolean; note: string }> {
+  if (o.mode === 'audio') {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true })
+    return { feeds: [{ id: s.id, label: 'Sound only', stream: s, facing: 'unknown' }], hasMic: true, note: '' }
+  }
   const q = QUALITY[o.quality]
   const first: Facing = o.facing === 'both' ? 'environment' : o.facing
   let note = ''
@@ -200,6 +225,8 @@ class CameraNodeController {
   private running = false
   private runId = 0
   private wake: WakeLockSentinel | null = null
+  private talkers = new Set<string>()
+  private speakers = new Map<string, HTMLAudioElement>()
 
   constructor(private publish: (s: NodeSnapshot) => void, private authLost: () => void) {}
 
@@ -227,7 +254,7 @@ class CameraNodeController {
       this.feeds = got.feeds
       let cams = 1
       try { cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput').length } catch { /* keep 1 */ }
-      this.set({ feeds: this.view(), hasMic: got.hasMic, micOn: got.hasMic, note: got.note, canFlip: got.feeds.length === 1 && cams > 1 })
+      this.set({ feeds: this.view(), hasMic: got.hasMic, micOn: got.hasMic, note: got.note, canFlip: o.mode !== 'audio' && got.feeds.length === 1 && cams > 1 })
     } catch (e) {
       if (run === this.runId) { this.running = false; this.set({ ...EMPTY, status: 'error', error: describe(e) }) }
       return
@@ -311,6 +338,14 @@ class CameraNodeController {
     const pc = new RTCPeerConnection({ iceServers: [] })
     this.sessions.set(key, { pc, from: m.from, id: m.session, pending: [], hasRemote: false })
     for (const f of this.feeds) for (const t of f.stream.getTracks()) pc.addTrack(t, f.stream)
+    if (this.opts?.talk === false) {
+      // Watchers can hear this device but cannot talk back.
+      for (const t of pc.getTransceivers()) if (t.receiver.track.kind === 'audio') t.direction = 'sendonly'
+    } else if (!pc.getSenders().some(sd => sd.track?.kind === 'audio')) {
+      // No microphone here, but watchers may still talk to this device.
+      pc.addTransceiver('audio', { direction: 'sendrecv' })
+    }
+    pc.ontrack = e => { if (e.track.kind === 'audio' && this.opts?.talk !== false) this.hearTalk(key, e.track, e.streams[0]) }
     pc.onicecandidate = e => { if (e.candidate) void this.say(m.from, m.session, 'ice', e.candidate.toJSON()) }
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') this.countViewers()
@@ -322,6 +357,33 @@ class CameraNodeController {
       await this.say(m.from, m.session, 'offer', { type: offer.type, sdp: offer.sdp })
       this.limitBitrate(pc)
     } catch { this.drop(key, true) }
+  }
+
+  /** Plays what a watcher says, and shows that someone is talking. */
+  private hearTalk(key: string, track: MediaStreamTrack, stream?: MediaStream) {
+    this.endTalk(key)
+    const el = new Audio()
+    el.srcObject = stream ?? new MediaStream([track])
+    el.muted = !this.snap.speaker
+    el.play().catch(() => undefined)
+    this.speakers.set(key, el)
+    const update = () => {
+      if (track.muted) this.talkers.delete(key); else this.talkers.add(key)
+      this.set({ talking: this.talkers.size > 0 })
+    }
+    track.onmute = update
+    track.onunmute = update
+  }
+
+  private endTalk(key: string) {
+    const el = this.speakers.get(key)
+    if (el) { el.pause(); el.srcObject = null; this.speakers.delete(key) }
+    if (this.talkers.delete(key)) this.set({ talking: this.talkers.size > 0 })
+  }
+
+  setSpeaker(on: boolean) {
+    this.speakers.forEach(el => { el.muted = !on })
+    this.set({ speaker: on })
   }
 
   private limitBitrate(pc: RTCPeerConnection) {
@@ -341,6 +403,7 @@ class CameraNodeController {
     const s = this.sessions.get(key)
     if (!s) return
     this.sessions.delete(key)
+    this.endTalk(key)
     s.pc.onconnectionstatechange = null
     s.pc.onicecandidate = null
     if (notify) void this.say(s.from, s.id, 'bye')
@@ -351,6 +414,7 @@ class CameraNodeController {
   private async closeSessions(notify: boolean) {
     const all = [...this.sessions.entries()]
     this.sessions.clear()
+    for (const [k] of all) this.endTalk(k)
     await Promise.all(all.map(async ([, s]) => {
       s.pc.onconnectionstatechange = null
       s.pc.onicecandidate = null
@@ -417,8 +481,9 @@ class CameraNodeController {
   private async keepAwake() {
     try {
       this.wake = (await navigator.wakeLock?.request('screen')) ?? null
-      this.wake?.addEventListener('release', () => { this.wake = null })
+      this.wake?.addEventListener('release', () => { this.wake = null; if (this.running) this.set({ awake: false }) })
     } catch { this.wake = null }
+    if (this.running) this.set({ awake: !!this.wake })
   }
 
   /** The screen lock is released when the tab is hidden; take it again when the person comes back. */
@@ -451,7 +516,7 @@ class CameraNodeController {
 }
 
 /** The Camera Node of this browser. Lives as long as the app, so leaving the Cameras page does not stop it. */
-export function useCameraNode(onAuthLost: () => void) {
+export function useCameraNode(onAuthLost: () => void, ready = true) {
   const lost = useRef(onAuthLost)
   lost.current = onAuthLost
   const [snap, setSnap] = useState<NodeSnapshot>(EMPTY)
@@ -465,11 +530,18 @@ export function useCameraNode(onAuthLost: () => void) {
     document.addEventListener('visibilitychange', show)
     return () => { window.removeEventListener('pagehide', hide); document.removeEventListener('visibilitychange', show) }
   }, [])
+  // A device set up to share by itself starts as soon as it is signed in.
+  useEffect(() => {
+    if (!ready) return
+    const auto = readAuto()
+    if (auto && window.isSecureContext && !!navigator.mediaDevices) void ctl.current?.start(auto)
+  }, [ready])
   const start = useCallback((o: NodeOptions) => ctl.current?.start(o), [])
   const stop = useCallback(() => ctl.current?.stop(), [])
   const setMic = useCallback((on: boolean) => ctl.current?.setMic(on), [])
   const flip = useCallback(() => ctl.current?.flip(), [])
-  return { snap, start, stop, setMic, flip }
+  const setSpeaker = useCallback((on: boolean) => ctl.current?.setSpeaker(on), [])
+  return { snap, start, stop, setMic, flip, setSpeaker }
 }
 export type CameraNodeApi = ReturnType<typeof useCameraNode>
 
@@ -548,11 +620,11 @@ const PHASE_TEXT: Record<Phase, string> = {
   connecting: 'Connecting…',
   live: 'Live',
   offline: 'This camera is offline',
-  busy: 'This camera has too many viewers. Trying again…',
+  busy: 'This camera already has the most viewers it can take (6). Trying again…',
   failed: 'Lost the connection. Trying again…'
 }
 
-function Video({ stream, muted, innerRef }: { stream: MediaStream; muted: boolean; innerRef: (el: HTMLVideoElement | null) => void }) {
+function Video({ stream, muted, innerRef, hidden }: { stream: MediaStream; muted: boolean; innerRef: (el: HTMLVideoElement | null) => void; hidden?: boolean }) {
   const ref = useRef<HTMLVideoElement | null>(null)
   useEffect(() => {
     const el = ref.current
@@ -564,17 +636,22 @@ function Video({ stream, muted, innerRef }: { stream: MediaStream; muted: boolea
     el.muted = muted
     if (!muted) el.play().catch(() => undefined)
   }, [muted])
-  return <video ref={el => { ref.current = el; innerRef(el) }} className="cam-video" autoPlay playsInline muted />
+  return <video ref={el => { ref.current = el; innerRef(el) }} className="cam-video" style={hidden ? { display: 'none' } : undefined} autoPlay playsInline muted />
 }
 
-function pickRecorderType(): string {
+function pickRecorderType(audioOnly = false): string {
   if (typeof MediaRecorder === 'undefined') return ''
+  if (audioOnly) return ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => MediaRecorder.isTypeSupported(t)) ?? ''
   return ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find(t => MediaRecorder.isTypeSupported(t)) ?? ''
 }
 
 const MAX_RECORD_SECONDS = 600
 
-function Tile({ node, hub, onClose }: { node: NodeView; hub: ViewerClient; onClose: () => void }) {
+const MAX_RECORD_BYTES = 500 * 1024 * 1024
+
+function Tile({ node, hub, onClose, focused, compact, canFocus, onFocus }: {
+  node: NodeView; hub: ViewerClient; onClose: () => void; focused: boolean; compact: boolean; canFocus: boolean; onFocus: () => void
+}) {
   const toast = useToast()
   const [phase, setPhase] = useState<Phase>('connecting')
   const [streams, setStreams] = useState<MediaStream[]>([])
@@ -582,15 +659,32 @@ function Tile({ node, hub, onClose }: { node: NodeView; hub: ViewerClient; onClo
   const [active, setActive] = useState(0)
   const [attempt, setAttempt] = useState(0)
   const [recSecs, setRecSecs] = useState<number | null>(null)
+  const [motionOn, setMotionOn] = useState(() => { try { return localStorage.getItem('dl.cam.motion.' + node.addr) === '1' } catch { return false } })
+  const [sens, setSens] = useState<Sensitivity>(() => { try { return (localStorage.getItem('dl.cam.sens') as Sensitivity) || 'medium' } catch { return 'medium' } })
+  const [motionFlash, setMotionFlash] = useState(false)
+  const [talkable, setTalkable] = useState(false)
+  const [talk, setTalk] = useState(false)
   const recorder = useRef<MediaRecorder | null>(null)
   const chunks = useRef<Blob[]>([])
+  const recBytes = useRef(0)
   const videos = useRef<(HTMLVideoElement | null)[]>([])
   const box = useRef<HTMLDivElement | null>(null)
+  const audioTx = useRef<RTCRtpTransceiver | null>(null)
+  const talkStream = useRef<MediaStream | null>(null)
+  const flashTimer = useRef(0)
+
+  const stopTalk = useCallback(() => {
+    talkStream.current?.getTracks().forEach(t => t.stop())
+    talkStream.current = null
+    audioTx.current?.sender.replaceTrack(null).catch(() => undefined)
+    setTalk(false)
+  }, [])
 
   useEffect(() => {
     if (!node.online) { setPhase('offline'); setStreams([]); return }
     setPhase('connecting')
     setStreams([])
+    setTalkable(false)
     const session = newId()
     const pc = new RTCPeerConnection({ iceServers: [] })
     const queue: RTCIceCandidateInit[] = []
@@ -606,16 +700,22 @@ function Tile({ node, hub, onClose }: { node: NodeView; hub: ViewerClient; onClo
     pc.onicecandidate = e => { if (e.candidate) hub.send(node.addr, session, 'ice', e.candidate.toJSON()).catch(() => undefined) }
     pc.onconnectionstatechange = () => {
       window.clearTimeout(lossTimer)
-      const s = pc.connectionState
-      if (s === 'connected') fail('live')
-      else if (s === 'disconnected') lossTimer = window.setTimeout(() => fail('failed'), 8_000)
-      else if (s === 'failed') fail('failed')
+      const st = pc.connectionState
+      if (st === 'connected') {
+        fail('live')
+        if (!closed) setTalkable(audioTx.current?.currentDirection === 'sendrecv')
+      } else if (st === 'disconnected') lossTimer = window.setTimeout(() => fail('failed'), 8_000)
+      else if (st === 'failed') fail('failed')
     }
     hub.attach(session, async m => {
       try {
         if (m.type === 'offer') {
           await pc.setRemoteDescription(m.data as RTCSessionDescriptionInit)
           remote = true
+          // Keep the sound line two-way, so talking later needs no new set-up. The node decides whether it is allowed.
+          for (const t of pc.getTransceivers()) {
+            if (t.receiver.track.kind === 'audio') { try { t.direction = 'sendrecv' } catch { /* receive only */ } audioTx.current = t }
+          }
           for (const c of queue.splice(0)) await pc.addIceCandidate(c).catch(() => undefined)
           const answer = await pc.createAnswer()
           await pc.setLocalDescription(answer)
@@ -649,6 +749,10 @@ function Tile({ node, hub, onClose }: { node: NodeView; hub: ViewerClient; onClo
       window.clearTimeout(giveUp)
       hub.detach(session)
       hub.send(node.addr, session, 'bye').catch(() => undefined)
+      talkStream.current?.getTracks().forEach(t => t.stop())
+      talkStream.current = null
+      audioTx.current = null
+      setTalk(false)
       pc.onconnectionstatechange = null
       pc.close()
     }
@@ -664,55 +768,124 @@ function Tile({ node, hub, onClose }: { node: NodeView; hub: ViewerClient; onClo
 
   const stopRecording = useCallback(() => {
     const r = recorder.current
-    if (r && r.state === 'recording') r.stop()
+    if (r && r.state === 'recording') { try { r.stop() } catch { /* already stopped */ } }
   }, [])
 
   // Whatever was recorded is saved when the picture goes away or the tile closes.
-  useEffect(() => { if (phase !== 'live') stopRecording() }, [phase, stopRecording])
-  useEffect(() => stopRecording, [stopRecording])
+  useEffect(() => { if (phase !== 'live') { stopRecording(); stopTalk() } }, [phase, stopRecording, stopTalk])
+  useEffect(() => () => { stopRecording(); window.clearTimeout(flashTimer.current) }, [stopRecording])
 
   useEffect(() => {
     if (recSecs === null) return
-    const t = window.setInterval(() => setRecSecs(s => {
-      if (s === null) return s
-      if (s + 1 >= MAX_RECORD_SECONDS) stopRecording()
-      return s + 1
+    const t = window.setInterval(() => setRecSecs(sec => {
+      if (sec === null) return sec
+      if (sec + 1 >= MAX_RECORD_SECONDS) stopRecording()
+      return sec + 1
     }), 1_000)
     return () => window.clearInterval(t)
   }, [recSecs === null, stopRecording]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const audioStream = streams.find(s => s.getAudioTracks().length > 0)
+  // Talking stops by itself after two minutes, so a microphone is never left open by accident.
+  useEffect(() => {
+    if (!talk) return
+    const t = window.setTimeout(stopTalk, 120_000)
+    return () => window.clearTimeout(t)
+  }, [talk, stopTalk])
 
-  const snapshot = () => {
-    const el = videos.current[active]
-    if (!el || !el.videoWidth) { toast.show('There is no picture to capture yet.', 'error'); return }
+  // A small picture is kept so the card still shows something after the camera goes offline.
+  useEffect(() => {
+    if (phase !== 'live') return
+    const take = () => { const el = videos.current[0]; if (el) saveThumb(node.addr, el) }
+    const first = window.setTimeout(take, 3_000)
+    const every = window.setInterval(take, 30_000)
+    return () => { window.clearTimeout(first); window.clearInterval(every) }
+  }, [phase, node.addr])
+
+  const audioStream = streams.find(s => s.getAudioTracks().length > 0)
+  const audioOnly = streams.length > 0 && streams.every(s => s.getVideoTracks().length === 0)
+
+  /** Copies the chosen picture into the gallery. */
+  const grab = (kind: 'manual' | 'motion') => {
+    const el = videos.current[active] ?? videos.current[0]
+    if (!el || !el.videoWidth) { if (kind === 'manual') toast.show('There is no picture to capture yet.', 'error'); return }
     const canvas = document.createElement('canvas')
     canvas.width = el.videoWidth
     canvas.height = el.videoHeight
     canvas.getContext('2d')?.drawImage(el, 0, 0)
     canvas.toBlob(b => {
-      if (!b) { toast.show('Could not save the snapshot.', 'error'); return }
-      saveBlob(b, `${slug(node.name)}-${stamp()}.jpg`)
-      toast.show('Snapshot saved')
+      if (!b) { if (kind === 'manual') toast.show('Could not save the snapshot.', 'error'); return }
+      void addShot(node.name, b, kind).then(stored => {
+        if (kind === 'manual') toast.show(stored ? 'Snapshot saved to the gallery below' : 'The browser has no room to keep snapshots. This one stays until you leave the page.', stored ? 'info' : 'error')
+      })
     }, 'image/jpeg', 0.92)
   }
 
+  useMotion(() => videos.current[active] ?? videos.current[0] ?? null, motionOn && phase === 'live' && !audioOnly, sens, () => {
+    setMotionFlash(true)
+    window.clearTimeout(flashTimer.current)
+    flashTimer.current = window.setTimeout(() => setMotionFlash(false), 8_000)
+    toast.show(`Motion at ${node.name}`)
+    beep()
+    systemNotice('Motion detected', node.name)
+    grab('motion')
+  })
+
+  const toggleMotion = () => {
+    const next = !motionOn
+    setMotionOn(next)
+    try { if (next) localStorage.setItem('dl.cam.motion.' + node.addr, '1'); else localStorage.removeItem('dl.cam.motion.' + node.addr) } catch { /* not remembered */ }
+    if (next) void askNotifications()
+  }
+
+  const chooseSens = (v: Sensitivity) => { setSens(v); try { localStorage.setItem('dl.cam.sens', v) } catch { /* not remembered */ } }
+
+  const toggleTalk = async () => {
+    if (talk) { stopTalk(); return }
+    const tx = audioTx.current
+    if (!tx) return
+    try {
+      const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+      await tx.sender.replaceTrack(mic.getAudioTracks()[0])
+      talkStream.current = mic
+      setTalk(true)
+    } catch {
+      toast.show('Could not use the microphone. Allow it for this site, then try again.', 'error')
+    }
+  }
+
   const startRecording = () => {
-    const stream = streams[active]
-    if (!stream || typeof MediaRecorder === 'undefined') { toast.show('This browser cannot record video.', 'error'); return }
-    const type = pickRecorderType()
+    const stream = streams[audioOnly ? 0 : active] ?? streams[0]
+    if (!stream || typeof MediaRecorder === 'undefined') { toast.show('This browser cannot record.', 'error'); return }
+    const type = pickRecorderType(audioOnly)
     let r: MediaRecorder
     try { r = new MediaRecorder(stream, type ? { mimeType: type } : undefined) } catch { toast.show('This browser cannot record this picture.', 'error'); return }
     chunks.current = []
-    r.ondataavailable = e => { if (e.data.size > 0) chunks.current.push(e.data) }
+    recBytes.current = 0
+    r.ondataavailable = e => {
+      if (e.data.size <= 0) return
+      chunks.current.push(e.data)
+      recBytes.current += e.data.size
+      if (recBytes.current > MAX_RECORD_BYTES) { toast.show('The recording reached its size limit and was saved.', 'error'); try { r.stop() } catch { /* already stopped */ } }
+    }
+    r.onerror = () => {
+      toast.show('Recording ran into a problem and stopped. What was recorded is saved.', 'error')
+      try { if (r.state === 'recording') r.stop() } catch { /* already stopped */ }
+    }
     r.onstop = () => {
-      const mime = r.mimeType || type || 'video/webm'
+      const mime = r.mimeType || type || (audioOnly ? 'audio/webm' : 'video/webm')
       const blob = new Blob(chunks.current, { type: mime })
       chunks.current = []
       setRecSecs(null)
-      if (blob.size > 0) { saveBlob(blob, `${slug(node.name)}-${stamp()}.${mime.includes('mp4') ? 'mp4' : 'webm'}`); toast.show('Recording saved') }
+      if (blob.size === 0) { toast.show('Nothing was recorded.', 'error'); return }
+      const ext = mime.includes('mp4') ? (audioOnly ? 'm4a' : 'mp4') : 'webm'
+      try {
+        saveBlob(blob, `${slug(node.name)}-${stamp()}.${ext}`)
+        toast.show('Recording saved')
+      } catch {
+        toast.show('The browser blocked the download. Allow downloads for this site, then record again.', 'error')
+      }
     }
-    r.start(1_000)
+    try { r.start(1_000) } catch { toast.show('Could not start recording.', 'error'); return }
     recorder.current = r
     setRecSecs(0)
   }
@@ -726,27 +899,33 @@ function Tile({ node, hub, onClose }: { node: NodeView; hub: ViewerClient; onClo
 
   const hasAudio = !!audioStream || node.mic
   const recording = recSecs !== null
-  const mm = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  const mm = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
 
   return (
-    <section className="cam-tile nm-raised" ref={box} aria-label={`Camera ${node.name}`}>
+    <section className={'cam-tile nm-raised' + (focused ? ' focused' : '') + (compact ? ' compact' : '') + (motionFlash ? ' motion' : '')} ref={box} aria-label={`Camera ${node.name}`}>
       <header className="cam-tile-head">
         <strong className="ellipsis">{node.name}</strong>
         <span className={'cam-chip ' + (phase === 'live' ? 'on' : phase === 'offline' ? 'off' : '')}>
           {phase === 'live' && <span className="dot" />}
           {phase === 'live' ? 'Live' : phase === 'offline' ? 'Offline' : 'Connecting'}
         </span>
+        {motionFlash && <span className="cam-chip motion-chip">Motion</span>}
         <span className="spacer" />
+        {canFocus && !focused && <button className="nm-btn sm" onClick={onFocus} aria-label={`Focus on ${node.name}`}>Focus</button>}
         <button className="icon-btn" onClick={onClose} aria-label={`Stop watching ${node.name}`}><CloseIcon /></button>
       </header>
 
-      <div className={'cam-stage' + (streams.length > 1 ? ' two' : '')}>
-        {streams.map((st, i) => (
-          <div key={st.id} className={'cam-feed' + (streams.length > 1 && i === active ? ' active' : '')} onClick={() => setActive(i)}>
-            <Video stream={st} muted={!listening || st !== audioStream} innerRef={el => { videos.current[i] = el }} />
-            {streams.length > 1 && <span className="cam-feed-label">{node.feeds.find(f => f.id === st.id)?.label ?? `Camera ${i + 1}`}</span>}
-          </div>
-        ))}
+      <div className={'cam-stage' + (streams.length > 1 ? ' two' : '')} onClick={compact ? onFocus : undefined}>
+        {streams.map((st, i) => {
+          const noPicture = st.getVideoTracks().length === 0
+          return (
+            <div key={st.id} className={'cam-feed' + (streams.length > 1 && i === active ? ' active' : '')} onClick={() => setActive(i)}>
+              <Video stream={st} muted={!listening || st !== audioStream} innerRef={el => { videos.current[i] = el }} hidden={noPicture} />
+              {noPicture && <AudioMeter stream={st} label={listening ? 'Listening to sound only' : 'Sound only. Press Listen to hear it'} />}
+              {streams.length > 1 && <span className="cam-feed-label">{node.feeds.find(f => f.id === st.id)?.label ?? `Camera ${i + 1}`}</span>}
+            </div>
+          )
+        })}
         {phase !== 'live' && (
           <div className="cam-overlay" role="status">
             {phase === 'offline' ? <Aubree state="offline" size={72} /> : <Aubree state="wait" size={72} />}
@@ -757,36 +936,60 @@ function Tile({ node, hub, onClose }: { node: NodeView; hub: ViewerClient; onClo
         {phase === 'live' && recording && <span className="cam-rec"><RecordIcon width={12} height={12} /> {mm(recSecs)}</span>}
       </div>
 
-      <div className="cam-bar">
-        <button className={'nm-btn sm' + (listening ? ' primary' : '')} onClick={() => setListening(v => !v)} disabled={!hasAudio} aria-pressed={listening}
-          title={hasAudio ? '' : 'This camera has no microphone on'}>
-          {listening ? <VolumeIcon /> : <MuteIcon />} {listening ? 'Listening' : hasAudio ? 'Listen' : 'No sound'}
-        </button>
-        <button className="nm-btn sm" onClick={snapshot} disabled={phase !== 'live'}><CameraIcon /> Snapshot</button>
-        {recording
-          ? <button className="nm-btn sm primary" onClick={stopRecording}><StopIcon /> Stop {mm(recSecs)}</button>
-          : <button className="nm-btn sm" onClick={startRecording} disabled={phase !== 'live'}><RecordIcon /> Record</button>}
-        <button className="icon-btn" onClick={fullscreen} aria-label="Full screen"><ExpandIcon /></button>
-      </div>
-      {streams.length > 1 && <p className="small muted cam-hint">Tap a picture to choose it for snapshots and recordings.</p>}
+      {!compact && (
+        <div className="cam-bar">
+          <button className={'nm-btn sm' + (listening ? ' primary' : '')} onClick={() => setListening(v => !v)} disabled={!hasAudio} aria-pressed={listening}
+            title={hasAudio ? '' : 'This camera has no microphone on'}>
+            {listening ? <VolumeIcon /> : <MuteIcon />} {listening ? 'Listening' : hasAudio ? 'Listen' : 'No sound'}
+          </button>
+          {talkable && (
+            <button className={'nm-btn sm' + (talk ? ' primary' : '')} onClick={() => void toggleTalk()} disabled={phase !== 'live'} aria-pressed={talk}>
+              <MicIcon /> {talk ? 'Talking · tap to stop' : 'Talk'}
+            </button>
+          )}
+          {!audioOnly && <button className="nm-btn sm" onClick={() => grab('manual')} disabled={phase !== 'live'}><CameraIcon /> Snapshot</button>}
+          {recording
+            ? <button className="nm-btn sm primary" onClick={stopRecording}><StopIcon /> Stop {mm(recSecs)}</button>
+            : <button className="nm-btn sm" onClick={startRecording} disabled={phase !== 'live'}><RecordIcon /> Record</button>}
+          {!audioOnly && <button className={'nm-btn sm' + (motionOn ? ' primary' : '')} onClick={toggleMotion} aria-pressed={motionOn}>Motion alert</button>}
+          <button className="icon-btn" onClick={fullscreen} aria-label="Full screen"><ExpandIcon /></button>
+        </div>
+      )}
+      {!compact && motionOn && !audioOnly && (
+        <div className="cam-sens" role="radiogroup" aria-label="Motion sensitivity">
+          <span className="small muted">Sensitivity</span>
+          {(['low', 'medium', 'high'] as const).map(v => (
+            <button key={v} role="radio" aria-checked={sens === v} className={'nm-btn sm' + (sens === v ? ' primary' : '')} onClick={() => chooseSens(v)}>
+              {v === 'low' ? 'Low' : v === 'medium' ? 'Medium' : 'High'}
+            </button>
+          ))}
+          <span className="small muted">Alerts work while this page is open. A snapshot is saved each time.</span>
+        </div>
+      )}
+      {!compact && streams.length > 1 && <p className="small muted cam-hint">Tap a picture to choose it for snapshots and recordings.</p>}
     </section>
   )
 }
 
 function NodeCard({ node, watching, onToggle }: { node: NodeView; watching: boolean; onToggle: () => void }) {
   const cams = node.feeds.length
+  const thumb = readThumb(node.addr)
+  const soundOnly = node.feeds.length > 0 && node.feeds.every(f => f.label === 'Sound only')
   return (
     <li className="cam-node nm-raised">
-      <span className="cam-node-icon"><CameraIcon /></span>
+      {thumb
+        ? <img className={'cam-node-thumb' + (node.online ? '' : ' dim')} src={thumb.url} alt={`Last picture from ${node.name}, ${agoText(Date.now() - thumb.at)}`} />
+        : <span className="cam-node-icon">{soundOnly ? <MicIcon /> : <CameraIcon />}</span>}
       <div className="cam-node-text">
         <strong className="ellipsis">{node.name}{node.mine ? ' (this device)' : ''}</strong>
         <span className="small muted ellipsis">
-          {[node.model, cams > 1 ? `${cams} cameras` : '', node.mic ? 'microphone on' : 'no sound', node.online && node.viewers > 0 ? `${node.viewers} watching` : '']
+          {[node.model, soundOnly ? 'sound only' : cams > 1 ? `${cams} cameras` : '', soundOnly ? '' : node.mic ? 'microphone on' : 'no sound', node.online && node.viewers > 0 ? `${node.viewers} watching` : '']
             .filter(Boolean).join(' · ')}
         </span>
         <span className={'cam-chip small ' + (node.online ? 'on' : 'off')}>
           {node.online ? <><span className="dot" /> Online</> : `Offline · seen ${agoText(node.ageMs)}`}
         </span>
+        {!node.online && thumb && <span className="small muted">Last picture {agoText(Date.now() - thumb.at)}</span>}
       </div>
       <button className={'nm-btn sm' + (watching ? '' : ' primary')} onClick={onToggle} disabled={node.mine || (!node.online && !watching)}>
         {watching ? 'Stop watching' : 'Watch'}
@@ -804,13 +1007,15 @@ const ERRORS: Record<string, string> = {
   browser_denied: 'The browser blocked the camera or microphone. Allow them for this site in the browser settings, then try again.',
   no_camera: 'No camera was found on this device.',
   camera_busy: 'The camera is in use by another app. Close it and try again.',
-  too_many: 'Too many requests. Wait a minute and try again.',
+  too_many: 'The phone cannot take more cameras or requests right now (up to 8 cameras, 2 per device). Stop another camera or wait a minute, then try again.',
   failed: 'The camera could not be started.'
 }
 
 function Preview({ stream }: { stream: MediaStream }) {
   const ref = useRef<HTMLVideoElement | null>(null)
+  const noPicture = stream.getVideoTracks().length === 0
   useEffect(() => { const el = ref.current; if (el && el.srcObject !== stream) { el.srcObject = stream; el.play().catch(() => undefined) } }, [stream])
+  if (noPicture) return <AudioMeter stream={stream} label="Sharing sound only" />
   return <video ref={ref} className="cam-video" autoPlay playsInline muted />
 }
 
@@ -820,14 +1025,23 @@ function SharePanel({ node }: { node: CameraNodeApi }) {
   const [mic, setMic] = useState(() => localStorage.getItem('dl.cam.mic') !== '0')
   const [quality, setQuality] = useState<Quality>(() => (localStorage.getItem('dl.cam.quality') as Quality) || 'standard')
   const [name, setName] = useState(() => localStorage.getItem('dl.cam.name') ?? '')
+  const [kind, setKind] = useState<'video' | 'audio'>(() => (localStorage.getItem('dl.cam.mode') === 'audio' ? 'audio' : 'video'))
+  const [talk, setTalk] = useState(() => localStorage.getItem('dl.cam.talk') !== '0')
+  const [auto, setAuto] = useState(() => readAuto() !== null)
+  const [kiosk, setKiosk] = useState(false)
+  const battery = useBattery()
   const secure = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia
+
+  const options = (): NodeOptions => ({ facing, mic: kind === 'audio' ? true : mic, quality, name: name.trim(), mode: kind, talk })
 
   const begin = () => {
     try {
       localStorage.setItem('dl.cam.facing', facing); localStorage.setItem('dl.cam.mic', mic ? '1' : '0')
       localStorage.setItem('dl.cam.quality', quality); localStorage.setItem('dl.cam.name', name.trim())
+      localStorage.setItem('dl.cam.mode', kind); localStorage.setItem('dl.cam.talk', talk ? '1' : '0')
     } catch { /* settings just will not be remembered */ }
-    void node.start({ facing, mic, quality, name: name.trim() })
+    writeAuto(auto ? options() : null)
+    void node.start(options())
   }
 
   const active = snap.status === 'starting' || snap.status === 'waiting' || snap.status === 'live' || snap.status === 'reconnecting'
@@ -846,43 +1060,65 @@ function SharePanel({ node }: { node: CameraNodeApi }) {
             </p>
           </div>
         )}
-        <h3>Share this device’s camera</h3>
+        <h3>Share this device</h3>
         <p className="muted small">
           Turn this device into a Camera Node. The phone’s owner is asked first. The video and sound go straight to the devices that watch, not through the phone.
         </p>
         {!secure && <p className="cam-warn" role="alert">{ERRORS.insecure}</p>}
         <label className="field-label" htmlFor="cam-name">Name <span className="muted">(for example “Front door”)</span></label>
         <input id="cam-name" className="field" value={name} maxLength={40} onChange={e => setName(e.target.value)} placeholder="Uses this device’s name if left empty" />
-        <div className="field-label">Camera</div>
-        <div className="segmented wide" role="radiogroup" aria-label="Camera">
-          {([['environment', 'Back'], ['user', 'Front'], ['both', 'Both']] as const).map(([v, l]) => (
-            <button key={v} role="radio" aria-checked={facing === v} className={facing === v ? 'on' : ''} onClick={() => setFacing(v)}>{l}</button>
+        <div className="field-label">What to share</div>
+        <div className="segmented wide" role="radiogroup" aria-label="What to share">
+          {([['video', 'Camera and sound'], ['audio', 'Sound only']] as const).map(([v, l]) => (
+            <button key={v} role="radio" aria-checked={kind === v} className={kind === v ? 'on' : ''} onClick={() => setKind(v)}>{l}</button>
           ))}
         </div>
-        <div className="field-label">Picture quality</div>
-        <div className="segmented wide" role="radiogroup" aria-label="Picture quality">
-          {([['low', 'Light'], ['standard', 'Standard'], ['high', 'High']] as const).map(([v, l]) => (
-            <button key={v} role="radio" aria-checked={quality === v} className={quality === v ? 'on' : ''} onClick={() => setQuality(v)}>{l}</button>
-          ))}
-        </div>
+        {kind === 'video' && (
+          <>
+            <div className="field-label">Camera</div>
+            <div className="segmented wide" role="radiogroup" aria-label="Camera">
+              {([['environment', 'Back'], ['user', 'Front'], ['both', 'Both']] as const).map(([v, l]) => (
+                <button key={v} role="radio" aria-checked={facing === v} className={facing === v ? 'on' : ''} onClick={() => setFacing(v)}>{l}</button>
+              ))}
+            </div>
+            <div className="field-label">Picture quality</div>
+            <div className="segmented wide" role="radiogroup" aria-label="Picture quality">
+              {([['low', 'Light'], ['standard', 'Standard'], ['high', 'High']] as const).map(([v, l]) => (
+                <button key={v} role="radio" aria-checked={quality === v} className={quality === v ? 'on' : ''} onClick={() => setQuality(v)}>{l}</button>
+              ))}
+            </div>
+            <label className="switch">
+              <span className="switch-text"><strong>Share sound</strong><span className="muted small">Let watchers hear what is happening here.</span></span>
+              <input type="checkbox" checked={mic} onChange={e => setMic(e.target.checked)} />
+              <span className="switch-track"><span /></span>
+            </label>
+          </>
+        )}
         <label className="switch">
-          <span className="switch-text"><strong>Share sound</strong><span className="muted small">Let watchers hear what is happening here.</span></span>
-          <input type="checkbox" checked={mic} onChange={e => setMic(e.target.checked)} />
+          <span className="switch-text"><strong>Allow two-way talk</strong><span className="muted small">Watchers can speak through this device’s speaker. You always see when someone is talking.</span></span>
+          <input type="checkbox" checked={talk} onChange={e => setTalk(e.target.checked)} />
+          <span className="switch-track"><span /></span>
+        </label>
+        <label className="switch">
+          <span className="switch-text"><strong>Start by itself when DropLink opens here</strong><span className="muted small">For a spare phone or tablet that should always be a camera. The phone’s owner is still asked unless they chose “always allow”.</span></span>
+          <input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} />
           <span className="switch-track"><span /></span>
         </label>
         <button className="nm-btn primary" onClick={begin} disabled={!secure || snap.status === 'starting'}><CameraIcon /> Start sharing</button>
-        <p className="muted small">Keep this page open and the screen on. The browser stops sharing when the page is closed or the phone sleeps.</p>
+        <p className="muted small">Keep this page open and the screen on. The browser stops sharing when the page is closed or the device sleeps.</p>
       </div>
     )
   }
 
   return (
     <div className="cam-share card nm-raised">
+      {kiosk && <KioskScreen snap={snap} onStop={() => { setKiosk(false); void node.stop() }} onExit={() => setKiosk(false)} />}
       <div className="cam-share-head">
         <span className={'cam-chip ' + (snap.status === 'live' ? 'on' : '')}>
           {snap.status === 'live' && <span className="dot" />}
           {snap.status === 'live' ? `Sharing · ${snap.viewers} watching` : snap.status === 'waiting' ? 'Waiting for permission' : snap.status === 'reconnecting' ? 'Reconnecting…' : 'Starting…'}
         </span>
+        {snap.talking && <span className="cam-chip motion-chip" role="status">Someone is talking</span>}
       </div>
       {snap.status === 'waiting' && (
         <div className="cam-result" role="status">
@@ -891,6 +1127,12 @@ function SharePanel({ node }: { node: CameraNodeApi }) {
         </div>
       )}
       {snap.status === 'reconnecting' && <p className="cam-warn" role="status">Lost contact with the phone. Trying again. Viewers see this camera as offline until it is back.</p>}
+      {snap.status === 'live' && !snap.awake && (
+        <p className="cam-warn" role="status">This device may not be able to keep its screen on. If it locks, sharing stops. Turn off the screen lock for now, or keep DropLink in front.</p>
+      )}
+      {battery && (battery.level <= 0.2 && !battery.charging
+        ? <p className="cam-warn" role="alert">Battery is at {Math.round(battery.level * 100)}% and not charging. Plug this device in to keep sharing.</p>
+        : <p className="muted small">Battery {Math.round(battery.level * 100)}%{battery.charging ? ' · charging' : ''}</p>)}
       <div className={'cam-stage preview' + (snap.feeds.length > 1 ? ' two' : '')}>
         {snap.feeds.map(f => (
           <div key={f.id} className="cam-feed"><Preview stream={f.stream} /><span className="cam-feed-label">{f.label}</span></div>
@@ -903,9 +1145,13 @@ function SharePanel({ node }: { node: CameraNodeApi }) {
             {snap.micOn ? <MicIcon /> : <MicOffIcon />} {snap.micOn ? 'Sound on' : 'Sound off'}
           </button>
         )}
+        <button className="nm-btn sm" onClick={() => node.setSpeaker(!snap.speaker)} aria-pressed={snap.speaker}>
+          {snap.speaker ? <VolumeIcon /> : <MuteIcon />} {snap.speaker ? 'Hear watchers' : 'Watchers muted'}
+        </button>
         {snap.canFlip && <button className="nm-btn sm" onClick={() => void node.flip()}><SwitchCameraIcon /> Switch camera</button>}
+        <button className="nm-btn sm" onClick={() => setKiosk(true)}><ExpandIcon /> Kiosk screen</button>
         <span className="spacer" />
-        <button className="nm-btn sm" onClick={() => void node.stop()}><StopIcon /> Stop sharing</button>
+        <button className="nm-btn sm" onClick={() => { writeAuto(null); setAuto(false); void node.stop() }}><StopIcon /> Stop sharing</button>
       </div>
     </div>
   )
@@ -915,13 +1161,16 @@ function SharePanel({ node }: { node: CameraNodeApi }) {
 /* The page                                                                                          */
 /* ------------------------------------------------------------------------------------------------ */
 
-export function CameraPage({ nodes, loaded, failed, node, onAuthLost }: {
-  nodes: NodeView[]; loaded: boolean; failed: boolean; node: CameraNodeApi; onAuthLost: () => void
+export function CameraPage({ nodes, loaded, failed, node, onAuthLost, onUpload }: {
+  nodes: NodeView[]; loaded: boolean; failed: boolean; node: CameraNodeApi; onAuthLost: () => void; onUpload: (files: File[]) => void
 }) {
   const [mode, setMode] = useState<'watch' | 'share'>(() => (node.snap.status !== 'off' ? 'share' : 'watch'))
   const [watching, setWatching] = useState<string[]>([])
   const [hub, setHub] = useState<ViewerClient | null>(null)
   const [link, setLink] = useState(true)
+  const [layout, setLayout] = useState<'grid' | 'focus'>(() => { try { return localStorage.getItem('dl.cam.layout') === 'focus' ? 'focus' : 'grid' } catch { return 'grid' } })
+  const [focusAddr, setFocusAddr] = useState<string | null>(null)
+  const [hint, setHint] = useState(() => { try { return localStorage.getItem('dl.cam.hint') !== '1' } catch { return true } })
   const lost = useRef(onAuthLost)
   lost.current = onAuthLost
 
@@ -935,6 +1184,11 @@ export function CameraPage({ nodes, loaded, failed, node, onAuthLost }: {
   const shown = watching.map(a => nodes.find(n => n.addr === a)).filter((n): n is NodeView => !!n)
   const online = nodes.filter(n => n.online && !n.mine).length
   const sharing = node.snap.status === 'live'
+  const multi = shown.length > 1
+  const focusing = multi && layout === 'focus'
+  const effectiveFocus = focusAddr && shown.some(n => n.addr === focusAddr) ? focusAddr : shown[0]?.addr
+  const chooseLayout = (v: 'grid' | 'focus') => { setLayout(v); try { localStorage.setItem('dl.cam.layout', v) } catch { /* not remembered */ } }
+  const dismissHint = () => { setHint(false); try { localStorage.setItem('dl.cam.hint', '1') } catch { /* shows again next time */ } }
 
   return (
     <div className="cam-page">
@@ -948,14 +1202,37 @@ export function CameraPage({ nodes, loaded, failed, node, onAuthLost }: {
         </button>
       </div>
 
+      {hint && (
+        <div className="cam-intro card nm-raised" role="note">
+          <Aubree state="welcome" size={64} />
+          <div>
+            <strong>Turn a spare phone, tablet or laptop into a camera</strong>
+            <p className="small muted">Open DropLink on that device, choose Cameras, then Share this device. It appears here once the phone’s owner allows it. You can watch, talk, take snapshots, record and get motion alerts.</p>
+          </div>
+          <button className="nm-btn sm" onClick={dismissHint}>Got it</button>
+        </div>
+      )}
+
       {mode === 'share' && <SharePanel node={node} />}
 
       {mode === 'watch' && (
         <>
           {(failed || !link) && <p className="cam-warn" role="status">Can’t reach the phone right now. Trying again…</p>}
+          {multi && (
+            <div className="segmented cam-layout" role="radiogroup" aria-label="Layout">
+              <button role="radio" aria-checked={layout === 'grid'} className={layout === 'grid' ? 'on' : ''} onClick={() => chooseLayout('grid')}>Grid</button>
+              <button role="radio" aria-checked={layout === 'focus'} className={layout === 'focus' ? 'on' : ''} onClick={() => chooseLayout('focus')}>Focus on one</button>
+            </div>
+          )}
           {shown.length > 0 && hub && (
-            <div className={'cam-wall' + (shown.length > 1 ? ' multi' : '')}>
-              {shown.map(n => <Tile key={n.addr} node={n} hub={hub} onClose={() => toggle(n.addr)} />)}
+            <div className={'cam-wall' + (multi ? ' multi' : '') + (focusing ? ' focus' : '')}>
+              {shown.map(n => (
+                <Tile
+                  key={n.addr} node={n} hub={hub} onClose={() => toggle(n.addr)}
+                  focused={focusing && n.addr === effectiveFocus} compact={focusing && n.addr !== effectiveFocus}
+                  canFocus={multi} onFocus={() => { setFocusAddr(n.addr); chooseLayout('focus') }}
+                />
+              ))}
             </div>
           )}
           {loaded && nodes.length === 0 && (
@@ -963,7 +1240,7 @@ export function CameraPage({ nodes, loaded, failed, node, onAuthLost }: {
               <Aubree state="sleepy" size={140} />
               <h3>No cameras yet</h3>
               <p className="muted">Open DropLink on another device, choose Cameras, then Share this device. It shows up here once the phone’s owner allows it.</p>
-              <button className="nm-btn" onClick={() => setMode('share')}><PlusIcon /> Share this device’s camera</button>
+              <button className="nm-btn" onClick={() => setMode('share')}><PlusIcon /> Share this device</button>
             </div>
           )}
           {nodes.length > 0 && (
@@ -975,6 +1252,7 @@ export function CameraPage({ nodes, loaded, failed, node, onAuthLost }: {
             </>
           )}
           {!loaded && !failed && <p className="muted" role="status">Looking for cameras…</p>}
+          <SnapshotGallery onUpload={onUpload} />
         </>
       )}
     </div>

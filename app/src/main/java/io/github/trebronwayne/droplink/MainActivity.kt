@@ -167,6 +167,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         Pairing.init(this)
+        io.github.trebronwayne.droplink.core.Peers.init(this)
         ReceivedFiles.init(this)
         Presence.init(this)
         Sidecars.init(this)
@@ -194,6 +195,10 @@ class MainActivity : ComponentActivity() {
                 val liveOn by LiveStream.enabled.collectAsStateWithLifecycle()
                 val receiving by Uploads.live.collectAsStateWithLifecycle()
                 val sent by Outbox.batches.collectAsStateWithLifecycle()
+                val peers by io.github.trebronwayne.droplink.core.Peers.peers.collectAsStateWithLifecycle()
+                val peerStatus by io.github.trebronwayne.droplink.core.Peers.status.collectAsStateWithLifecycle()
+                val peerPairing by io.github.trebronwayne.droplink.core.Peers.pairing.collectAsStateWithLifecycle()
+                val peerTransfers by io.github.trebronwayne.droplink.core.Peers.transfers.collectAsStateWithLifecycle()
                 LaunchedEffect(hosting, useHttp) { refreshAddresses() }
                 LaunchedEffect(error, hosting) {
                     diagnostics = withContext(Dispatchers.IO) { CrashLog.read(applicationContext) }
@@ -295,9 +300,27 @@ class MainActivity : ComponentActivity() {
                     onRemovePicked = { f -> picked = picked.filter { it.uri != f.uri } },
                     onSend = ::sendPicked,
                     onCancel = Outbox::cancel,
-                    onRemove = Outbox::remove
+                    onRemove = Outbox::remove,
+                    peers = peers,
+                    nearby = nodes.map { it.nodeId }.toSet(),
+                    peerStatus = peerStatus,
+                    peerTransfers = peerTransfers,
+                    onSendPeers = ::sendToPeers,
+                    onPeerCancel = io.github.trebronwayne.droplink.core.Peers::cancel,
+                    onPeerRetry = io.github.trebronwayne.droplink.core.Peers::retry,
+                    onPeerRemove = io.github.trebronwayne.droplink.core.Peers::remove
                 )
-                val network = NetworkUi(nodes.filter { it.nodeId != nodeId }, ::openNode)
+                val network = NetworkUi(
+                    nodes = nodes.filter { it.nodeId != nodeId },
+                    onOpen = ::openNode,
+                    peers = peers,
+                    peerStatus = peerStatus,
+                    pairing = peerPairing,
+                    onPair = io.github.trebronwayne.droplink.core.Peers::pair,
+                    onCancelPair = io.github.trebronwayne.droplink.core.Peers::cancelPairing,
+                    onDismissPair = io.github.trebronwayne.droplink.core.Peers::dismissPairing,
+                    onUnpair = io.github.trebronwayne.droplink.core.Peers::unpair
+                )
                 DropLinkApp(
                     nodeId = nodeId, host = host, files = files, pairing = pairing, network = network, send = send,
                     player = PlayerUi(
@@ -462,6 +485,16 @@ class MainActivity : ComponentActivity() {
         }
         val files = picked.mapIndexed { i, f -> OutFile(i, f.name, f.size, f.mime, f.uri) }
         if (Outbox.create(files, targets, everyone = ids == null) != null) picked = emptyList()
+    }
+
+    /** Sends the picked files straight to other DropLink phones. They do not need this phone to be hosting. */
+    private fun sendToPeers(peerIds: Set<String>, clearPicked: Boolean) {
+        val files = picked.map { io.github.trebronwayne.droplink.core.PeerFile(it.uri, it.name, it.size, it.mime) }
+        if (files.isEmpty()) return
+        var started = false
+        peerIds.forEach { id -> if (io.github.trebronwayne.droplink.core.Peers.send(id, files) != null) started = true }
+        if (started && clearPicked) picked = emptyList()
+        if (!started) Toast.makeText(this, "That phone is not paired any more.", Toast.LENGTH_LONG).show()
     }
 
     private fun hasMediaAccess(): Boolean =

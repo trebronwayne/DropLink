@@ -4,7 +4,9 @@
 - [x] **Host a page**: publish a website from a folder, with sign-in accounts and forms that send information to the phone.
 - [x] **Live streaming**: paired devices follow the phone's player in their browser.
 - [x] **Camera Nodes**: any paired browser can share its camera and microphone, and other devices watch live, take snapshots and record moments. Nothing passes through the phone but the set-up messages.
-- [ ] **More camera tools**: motion alerts and scheduled recording for Camera Nodes.
+- [x] **Camera tools**: motion alerts, snapshot gallery, two-way talk, sound-only nodes, auto-start and kiosk screen, grid or focus layout.
+- [x] **Phone to phone**: paired DropLink phones send files straight to each other, with resume and a pinned certificate.
+- [ ] **More camera tools**: scheduled recording, and motion alerts that work while no one is watching.
 - [ ] **Remote presentation**: control slides on a big screen from the phone. Slides will be shown from PDF or image exports; native PowerPoint rendering is a much bigger job and is planned later.
 - [ ] **Send and receive files**: the operator sends to one, two or all connected users; recipients accept each file or turn on auto-accept. Users add their name on first visit.
 - [x] **Uploads to the phone**: paired devices send files only after the operator approves, once or always (per device). Files are saved in Downloads/DropLink.

@@ -114,6 +114,7 @@ class LocalServerService : Service() {
                 }
                 stage = "loading pairing data"
                 Pairing.init(applicationContext)
+                io.github.trebronwayne.droplink.core.Peers.init(applicationContext)
                 ReceivedFiles.init(applicationContext)
                 io.github.trebronwayne.droplink.core.Presence.init(applicationContext)
                 io.github.trebronwayne.droplink.core.Partials.init(applicationContext)

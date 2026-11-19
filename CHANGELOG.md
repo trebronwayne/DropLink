@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+_Nothing yet._
+
+## 0.9.0 (19 November 2026)
+
+### Phone-to-phone sending (new)
+- Two DropLink phones on the same Wi-Fi or hotspot can now pair and send files straight to each other. Open **Servers**, tap **Pair with this phone**, compare the code on both screens and let the other owner approve it once. To send both ways, pair from both phones.
+- Files go over the same resumable upload API browsers use, so the receiving owner keeps the same control (**Ask**, **Always** or **Block** under Devices). A dropped connection continues from the byte where it stopped, and two files move at once for speed. Wi-Fi is held at full speed while files move.
+- The other phone's certificate is pinned at pairing, so a different device cannot pretend to be it. The Servers screen shows each paired phone's free space, live cameras and whether it will ask before accepting.
+- **Transfers > Send files** lists paired phones next to browsers; progress, speed, stop and try again are shown under "Sent to other phones".
+- The server's `/api/info` now also reports the phone's name, live camera count and free space.
+
+### Camera Nodes: more for the web client
+- **Motion alerts** while watching: pick Low, Medium or High, get a message, a beep and (if allowed) a system notification, and a snapshot is saved each time.
+- **Snapshot gallery** that survives reloads, with a viewer, save, delete, and **Send to phone** (one or all) through the normal upload approval.
+- **Two-way talk**: a watcher can speak through the camera device's speaker. The camera owner sees "Someone is talking", can mute watchers, and can switch talk off before sharing.
+- **Sound-only nodes** (baby-monitor style) with a level meter, recordable as audio.
+- **Start by itself** for a spare phone or tablet, plus a dark **kiosk screen** that drifts slightly to protect the display.
+- **Grid or Focus** layout when watching several cameras, with a Focus button or tap on a small picture.
+- Offline cameras keep their **last picture** and "last seen" time. A first-use hint explains the idea.
+- A **sharing banner** with a one-tap Stop stays visible on every page while this device shares. Battery level and a "screen may lock" warning show on the sharing device.
+- Recording now reports errors, stops at a size limit and saves what it has; clearer messages when the phone has too many cameras or viewers.
+- The mobile tab bar no longer cuts labels off, and Cameras is always reachable there.
+
 ### Camera Nodes (new)
 - Any paired browser can become a Camera Node and share its camera and microphone: front, back, or both when the device allows it, with a light, standard or high picture. Sound can be turned off. A phone can switch cameras while sharing without dropping viewers.
 - The phone's owner decides per device: **Ask me** (allow this time, always, or deny, with a notification), **Always**, or **Block**. Nodes show on the Devices screen only as a small "camera live" line and a policy switch, so the phone stays uncluttered.

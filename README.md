@@ -111,7 +111,8 @@
 | 📁 **Share folders** | Pick folders with Android's own picker. Read-only, nothing is copied or uploaded. |
 | ⚡ **Fast browsing** | Folders open from a single storage query, are cached, and thumbnails load instead of full photos. |
 | 🎵 **Music and video that keep playing** | A persistent player with queue (reorder and clear), shuffle, repeat, speed, sleep timer, resume where you left off and lock-screen controls. Keep browsing while it plays. |
-| 🎥 **Camera Nodes** | Any paired browser can share its camera and microphone (you allow it once, always, or never). Other devices watch live, hear the sound, take snapshots and record moments. The video goes straight between browsers, not through the phone. Read the [Camera Nodes guide](docs/CAMERA_NODES.md). |
+| 🎥 **Camera Nodes** | Any paired browser can share its camera and microphone, or sound only (you allow it once, always, or never). Other devices watch live in a grid or focus on one, listen, talk back, take snapshots into a gallery, record moments and get motion alerts. A spare phone can start sharing by itself and show a dark kiosk screen. The video goes straight between browsers, not through the phone. Read the [Camera Nodes guide](docs/CAMERA_NODES.md). |
+| 🔁 **Phone to phone** | Pair two phones running DropLink and send files straight between them, fast, with resume, a pinned certificate and the same Ask / Always / Block control. Read the [Phone to phone guide](docs/PHONE_TO_PHONE.md). |
 | 🔔 **Notification sound** | Requests and received files play the DropLink sound. One switch in Settings turns it off. |
 | 📥 **Receive files** | Paired devices can send files to the phone, but only after you approve: **once**, or **always** for that device (or block it). They are saved in `Downloads/DropLink`. |
 | 🔐 **Approval-based access** | New devices must be approved on the phone and can be revoked any time. Everything runs over HTTPS. |
@@ -147,9 +148,8 @@ Read the [Host a page guide](docs/HOST_PAGE.md) and try the ready-made [sample s
 
 | | |
 |---|---|
-| 🎥 **More camera tools** | Motion alerts and scheduled recording for Camera Nodes. |
+| 🎥 **More camera tools** | Scheduled recording, and motion alerts that work while no one is watching. |
 | 🖥️ **Remote presentation** | Control slides on a big screen from the phone (PDF and image slides first; native PowerPoint rendering is a bigger project and comes later). |
-| 📤 **Send and receive files** | Send to one, two or everyone connected. Recipients accept, or turn on auto-accept. People add their name on first visit. |
 | 👥 **People** | See who is connected and send them messages, files and attachments. |
 | 💬 **Feedback** | Visitors send feedback to you, and you reply. |
 | 📋 **Richer device list** | More detail about every connected device. |
