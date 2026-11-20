@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#16181c" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<title>DropLink Connect</title>
+<style>
+  :root { --bg:#141619; --surface:#1b1e23; --surface-2:#23272e; --text:#eceef2; --muted:#9099a6; --line:rgba(255,255,255,.12); --line-strong:rgba(255,255,255,.24); --accent:#4da3ff; --accent-text:#7ab9ff; --on-accent:#04111f; --grad:#4da3ff; --danger:#ff8a80; color-scheme: dark light; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f3f5f8; --surface:#fff; --surface-2:#eceff4; --text:#1a1d23; --muted:#5b6472; --line:rgba(20,30,50,.1); --line-strong:rgba(20,30,50,.28); --accent:#0f6cbd; --accent-text:#0b5394; --on-accent:#fff; --grad:#0f6cbd; --danger:#b3261e; } }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px; background:var(--bg); color:var(--text); font:15px/22px 'Segoe UI Variable','Segoe UI', system-ui, sans-serif; }
+  main { width:min(420px,100%); padding:28px; border:1px solid var(--line); border-radius:12px; background:var(--surface); display:grid; gap:14px; text-align:center; }
+  img.logo { width:84px; height:84px; margin:0 auto; border-radius:20px; }
+  h1 { margin:0; font-size:24px; font-weight:600; letter-spacing:-.02em; } p { margin:0; color:var(--muted); }
+  button, input { font:inherit; color:inherit; border:1px solid var(--line-strong); border-radius:8px; padding:12px 16px; background:transparent; }
+  button { cursor:pointer; font-weight:600; transition:background-color .18s,border-color .18s; }
+  button:hover { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 14%,transparent); }
+  button.primary { background:var(--grad); border-color:transparent; color:var(--on-accent); } button.primary:hover { filter:brightness(1.08); }
+  input { width:100%; background:var(--surface-2); } input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+  video { width:100%; border:1px solid var(--line-strong); border-radius:12px; background:#000; aspect-ratio:4/3; object-fit:cover; }
+  code { word-break:break-all; font-size:13px; }
+  .row { display:grid; gap:10px; } [hidden] { display:none !important; } .err { color:var(--danger); }
+</style>
+</head>
+<body>
+<main>
+  <img class="logo" src="icon-192.png" alt="" />
+  <h1>DropLink</h1>
+  <section id="saved" class="row" hidden>
+    <button class="primary" id="open">Open DropLink</button>
+    <p>Last address: <code id="addr"></code></p>
+    <p>If it does not open, the address may have changed. Scan the QR code on the phone again.</p>
+  </section>
+  <section id="first" class="row"><p>Scan the QR code shown by DropLink on the phone, and this app will remember it.</p></section>
+  <button id="scan">Scan QR code</button>
+  <video id="video" playsinline muted hidden></video>
+  <p id="msg" role="status"></p>
+  <form id="form" class="row">
+    <input id="typed" placeholder="Or type it: 192.168.43.1:47831" inputmode="url" autocapitalize="none" autocorrect="off" />
+    <button>Save and open</button>
+  </form>
+</main>
+<script>
+(function () {
+  var KEY = 'droplink.address'
+  var $ = function (id) { return document.getElementById(id) }
+  function parse(text) {
+    text = (text || '').trim()
+    if (!text || /^WIFI:/i.test(text)) return null
+    try {
+      var u = new URL(/^https?:\/\//i.test(text) ? text : 'https://' + text)
+      return /^https?:$/.test(u.protocol) && u.hostname.indexOf('.') > 0 ? u.origin + '/' : null
+    } catch (e) { return null }
+  }
+  function go(address) { try { localStorage.setItem(KEY, address) } catch (e) {} location.href = address }
+  function show() {
+    var saved = null; try { saved = localStorage.getItem(KEY) } catch (e) {}
+    $('saved').hidden = !saved; $('first').hidden = !!saved
+    if (saved) $('addr').textContent = saved
+  }
+  show()
+  $('open').onclick = function () { var s = localStorage.getItem(KEY); if (s) location.href = s }
+  $('form').onsubmit = function (e) {
+    e.preventDefault()
+    var a = parse($('typed').value)
+    if (a) go(a); else { $('msg').className = 'err'; $('msg').textContent = 'That does not look like an address.' }
+  }
+  var stream = null, stopped = true
+  function stop() { stopped = true; if (stream) stream.getTracks().forEach(function (t) { t.stop() }); stream = null; $('video').hidden = true }
+  $('scan').onclick = async function () {
+    if (!stopped) { stop(); return }
+    $('msg').className = ''
+    var BD = window.BarcodeDetector
+    if (!navigator.mediaDevices || !BD) { $('msg').textContent = 'This browser cannot read QR codes in a page. Use the phone camera app, or type the address.'; return }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      var v = $('video'); v.srcObject = stream; v.hidden = false; await v.play(); stopped = false
+      $('msg').textContent = 'Point the camera at the QR code on the phone.'
+      var det = new BD({ formats: ['qr_code'] })
+      var tick = async function () {
+        if (stopped) return
+        try {
+          var r = await det.detect(v), t = r[0] && r[0].rawValue
+          if (t) {
+            var a = parse(t)
+            if (a) { stop(); go(a); return }
+            $('msg').textContent = /^WIFI:/i.test(t) ? 'That is the Wi-Fi code. Join the network with the camera app, then scan the DropLink code.' : 'That code is not a DropLink address.'
+          }
+        } catch (e) {}
+        setTimeout(tick, 250)
+      }
+      tick()
+    } catch (e) { $('msg').textContent = 'Camera permission was denied.'; stop() }
+  }
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {})
+})()
+</script>
+</body>
+</html>
