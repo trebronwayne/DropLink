@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AuthError, CameraError, CameraFeed, CameraNode, cameraApi } from './api'
 import { Aubree } from './Aubree'
-import { CameraIcon, CloseIcon, ExpandIcon, MicIcon, MicOffIcon, PlusIcon, RecordIcon, StopIcon, SwitchCameraIcon, VolumeIcon, MuteIcon } from './icons'
+import { CameraIcon, CloseIcon, ExpandIcon, FlashlightIcon, MicIcon, MicOffIcon, PlusIcon, RecordIcon, StopIcon, SwitchCameraIcon, VolumeIcon, MuteIcon } from './icons'
 import { useToast } from './toast'
 import {
-  AudioMeter, KioskScreen, Sensitivity, SnapshotGallery, addShot, askNotifications, beep, readThumb, saveThumb, systemNotice, useBattery, useMotion
+  AudioMeter, KioskScreen, Sensitivity, SnapshotGallery, addShot, askNotifications, beep, readThumb, saveThumb, startNoSleep, systemNotice, useBattery, useMotion
 } from './camtools'
 
 /**
@@ -143,9 +143,12 @@ export type NodeSnapshot = {
   speaker: boolean
   /** False when the browser could not keep the screen awake. */
   awake: boolean
+  /** The shared camera has a flashlight, and whether it is on. */
+  torchAvailable: boolean
+  torch: boolean
 }
 
-const EMPTY: NodeSnapshot = { status: 'off', error: '', note: '', feeds: [], hasMic: false, micOn: false, viewers: 0, canFlip: false, talking: false, speaker: true, awake: true }
+const EMPTY: NodeSnapshot = { status: 'off', error: '', note: '', feeds: [], hasMic: false, micOn: false, viewers: 0, canFlip: false, talking: false, speaker: true, awake: true, torchAvailable: false, torch: false }
 
 const AUTO_KEY = 'dl.cam.auto'
 /** The options of a node that starts by itself when DropLink opens on this device, or null. */
@@ -227,6 +230,9 @@ class CameraNodeController {
   private wake: WakeLockSentinel | null = null
   private talkers = new Set<string>()
   private speakers = new Map<string, HTMLAudioElement>()
+  private channels = new Map<string, RTCDataChannel>()
+  private noSleep: (() => void) | null = null
+  private wakeTimer = 0
 
   constructor(private publish: (s: NodeSnapshot) => void, private authLost: () => void) {}
 
@@ -255,11 +261,15 @@ class CameraNodeController {
       let cams = 1
       try { cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput').length } catch { /* keep 1 */ }
       this.set({ feeds: this.view(), hasMic: got.hasMic, micOn: got.hasMic, note: got.note, canFlip: o.mode !== 'audio' && got.feeds.length === 1 && cams > 1 })
+      this.refreshTorch()
     } catch (e) {
       if (run === this.runId) { this.running = false; this.set({ ...EMPTY, status: 'error', error: describe(e) }) }
       return
     }
     void this.keepAwake()
+    window.clearInterval(this.wakeTimer)
+    // Checked every few seconds, so the screen lock is taken again whenever the browser let go of it.
+    this.wakeTimer = window.setInterval(() => this.rewake(), 15_000)
     void this.register(run)
   }
 
@@ -346,6 +356,16 @@ class CameraNodeController {
       pc.addTransceiver('audio', { direction: 'sendrecv' })
     }
     pc.ontrack = e => { if (e.track.kind === 'audio' && this.opts?.talk !== false) this.hearTalk(key, e.track, e.streams[0]) }
+    // A small side channel: lets a watcher switch the flashlight, and tells watchers whether there is one.
+    const ctl = pc.createDataChannel('ctl')
+    this.channels.set(key, ctl)
+    ctl.onopen = () => this.sendCtl(ctl)
+    ctl.onmessage = ev => {
+      try {
+        const msg = JSON.parse(String(ev.data)) as { t?: string; on?: boolean }
+        if (msg.t === 'torch') void this.setTorch(!!msg.on)
+      } catch { /* ignore anything unexpected */ }
+    }
     pc.onicecandidate = e => { if (e.candidate) void this.say(m.from, m.session, 'ice', e.candidate.toJSON()) }
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') this.countViewers()
@@ -403,6 +423,7 @@ class CameraNodeController {
     const s = this.sessions.get(key)
     if (!s) return
     this.sessions.delete(key)
+    this.channels.delete(key)
     this.endTalk(key)
     s.pc.onconnectionstatechange = null
     s.pc.onicecandidate = null
@@ -414,6 +435,7 @@ class CameraNodeController {
   private async closeSessions(notify: boolean) {
     const all = [...this.sessions.entries()]
     this.sessions.clear()
+    this.channels.clear()
     for (const [k] of all) this.endTalk(k)
     await Promise.all(all.map(async ([, s]) => {
       s.pc.onconnectionstatechange = null
@@ -434,6 +456,44 @@ class CameraNodeController {
   private push() {
     if (!this.running || this.snap.status === 'waiting') return
     cameraApi.update({ client: this.client, feeds: this.meta(), mic: this.micState(), viewers: this.snap.viewers }).catch(() => undefined)
+  }
+
+  private torchTrack(): MediaStreamTrack | null {
+    for (const f of this.feeds) {
+      for (const t of f.stream.getVideoTracks()) {
+        try {
+          const caps = t.getCapabilities?.() as (MediaTrackCapabilities & { torch?: boolean }) | undefined
+          if (caps?.torch) return t
+        } catch { /* this track cannot say */ }
+      }
+    }
+    return null
+  }
+
+  private refreshTorch() {
+    const has = !!this.torchTrack()
+    this.set({ torchAvailable: has, torch: has ? this.snap.torch : false })
+    this.broadcastCtl()
+  }
+
+  private sendCtl(ch: RTCDataChannel) {
+    if (ch.readyState !== 'open') return
+    try { ch.send(JSON.stringify({ t: 'state', torchAvailable: this.snap.torchAvailable, torch: this.snap.torch })) } catch { /* the viewer is gone */ }
+  }
+
+  private broadcastCtl() { this.channels.forEach(ch => this.sendCtl(ch)) }
+
+  /** Turns the flashlight of the shared camera on or off. Works from this device or from a watcher. */
+  async setTorch(on: boolean) {
+    const t = this.torchTrack()
+    if (!t) { this.set({ note: 'The camera being shared has no flashlight.' }); return }
+    try {
+      await t.applyConstraints({ advanced: [{ torch: on } as unknown as MediaTrackConstraintSet] })
+      this.set({ torch: on })
+    } catch {
+      this.set({ torch: false, note: 'Could not switch the flashlight.' })
+    }
+    this.broadcastCtl()
   }
 
   setMic(on: boolean) {
@@ -474,17 +534,31 @@ class CameraNodeController {
     f.stream.addTrack(track)
     f.facing = facing
     f.label = labelFor(facing)
-    this.set({ feeds: this.view(), note: '' })
+    this.set({ feeds: this.view(), note: '', torch: false })
+    this.refreshTorch()
     this.push()
   }
 
   private async keepAwake() {
+    let held = false
     try {
-      this.wake = (await navigator.wakeLock?.request('screen')) ?? null
-      this.wake?.addEventListener('release', () => { this.wake = null; if (this.running) this.set({ awake: false }) })
+      const lock = await navigator.wakeLock?.request('screen')
+      if (lock) {
+        this.wake = lock
+        held = true
+        lock.addEventListener('release', () => {
+          if (this.wake === lock) this.wake = null
+          if (this.running) { this.updateAwake(); window.setTimeout(() => this.rewake(), 400) }
+        })
+      }
     } catch { this.wake = null }
-    if (this.running) this.set({ awake: !!this.wake })
+    // No Wake Lock API, or the browser refused it: a hidden playing picture keeps most browsers from sleeping.
+    if (!held && !this.noSleep && this.running) this.noSleep = startNoSleep()
+    if (held && this.noSleep) { this.noSleep(); this.noSleep = null }
+    this.updateAwake()
   }
+
+  private updateAwake() { if (this.running) this.set({ awake: !!this.wake || !!this.noSleep }) }
 
   /** The screen lock is released when the tab is hidden; take it again when the person comes back. */
   rewake() { if (this.running && !this.wake) void this.keepAwake() }
@@ -505,6 +579,9 @@ class CameraNodeController {
     this.feeds = []
     try { await this.wake?.release() } catch { /* already released */ }
     this.wake = null
+    this.noSleep?.()
+    this.noSleep = null
+    window.clearInterval(this.wakeTimer)
     this.set({ ...EMPTY, status, error })
   }
 
@@ -541,7 +618,8 @@ export function useCameraNode(onAuthLost: () => void, ready = true) {
   const setMic = useCallback((on: boolean) => ctl.current?.setMic(on), [])
   const flip = useCallback(() => ctl.current?.flip(), [])
   const setSpeaker = useCallback((on: boolean) => ctl.current?.setSpeaker(on), [])
-  return { snap, start, stop, setMic, flip, setSpeaker }
+  const setTorch = useCallback((on: boolean) => ctl.current?.setTorch(on), [])
+  return { snap, start, stop, setMic, flip, setSpeaker, setTorch }
 }
 export type CameraNodeApi = ReturnType<typeof useCameraNode>
 
@@ -664,6 +742,8 @@ function Tile({ node, hub, onClose, focused, compact, canFocus, onFocus }: {
   const [motionFlash, setMotionFlash] = useState(false)
   const [talkable, setTalkable] = useState(false)
   const [talk, setTalk] = useState(false)
+  const [torchInfo, setTorchInfo] = useState<{ available: boolean; on: boolean } | null>(null)
+  const ctlChannel = useRef<RTCDataChannel | null>(null)
   const recorder = useRef<MediaRecorder | null>(null)
   const chunks = useRef<Blob[]>([])
   const recBytes = useRef(0)
@@ -685,6 +765,7 @@ function Tile({ node, hub, onClose, focused, compact, canFocus, onFocus }: {
     setPhase('connecting')
     setStreams([])
     setTalkable(false)
+    setTorchInfo(null)
     const session = newId()
     const pc = new RTCPeerConnection({ iceServers: [] })
     const queue: RTCIceCandidateInit[] = []
@@ -696,6 +777,16 @@ function Tile({ node, hub, onClose, focused, compact, canFocus, onFocus }: {
     pc.ontrack = e => {
       const st = e.streams[0]
       if (st) setStreams(cur => (cur.includes(st) ? cur : [...cur, st]))
+    }
+    pc.ondatachannel = e => {
+      if (e.channel.label !== 'ctl') return
+      ctlChannel.current = e.channel
+      e.channel.onmessage = ev => {
+        try {
+          const msg = JSON.parse(String(ev.data)) as { t?: string; torchAvailable?: boolean; torch?: boolean }
+          if (msg.t === 'state' && !closed) setTorchInfo({ available: !!msg.torchAvailable, on: !!msg.torch })
+        } catch { /* ignore */ }
+      }
     }
     pc.onicecandidate = e => { if (e.candidate) hub.send(node.addr, session, 'ice', e.candidate.toJSON()).catch(() => undefined) }
     pc.onconnectionstatechange = () => {
@@ -752,6 +843,7 @@ function Tile({ node, hub, onClose, focused, compact, canFocus, onFocus }: {
       talkStream.current?.getTracks().forEach(t => t.stop())
       talkStream.current = null
       audioTx.current = null
+      ctlChannel.current = null
       setTalk(false)
       pc.onconnectionstatechange = null
       pc.close()
@@ -947,6 +1039,12 @@ function Tile({ node, hub, onClose, focused, compact, canFocus, onFocus }: {
               <MicIcon /> {talk ? 'Talking · tap to stop' : 'Talk'}
             </button>
           )}
+          {torchInfo?.available && (
+            <button className={'nm-btn sm' + (torchInfo.on ? ' primary' : '')} aria-pressed={torchInfo.on} disabled={phase !== 'live'}
+              onClick={() => { const on = !torchInfo.on; try { ctlChannel.current?.send(JSON.stringify({ t: 'torch', on })); setTorchInfo({ available: true, on }) } catch { toast.show('Could not reach the camera to switch its flashlight.', 'error') } }}>
+              <FlashlightIcon /> {torchInfo.on ? 'Flashlight on' : 'Flashlight'}
+            </button>
+          )}
           {!audioOnly && <button className="nm-btn sm" onClick={() => grab('manual')} disabled={phase !== 'live'}><CameraIcon /> Snapshot</button>}
           {recording
             ? <button className="nm-btn sm primary" onClick={stopRecording}><StopIcon /> Stop {mm(recSecs)}</button>
@@ -1128,8 +1226,9 @@ function SharePanel({ node }: { node: CameraNodeApi }) {
       )}
       {snap.status === 'reconnecting' && <p className="cam-warn" role="status">Lost contact with the phone. Trying again. Viewers see this camera as offline until it is back.</p>}
       {snap.status === 'live' && !snap.awake && (
-        <p className="cam-warn" role="status">This device may not be able to keep its screen on. If it locks, sharing stops. Turn off the screen lock for now, or keep DropLink in front.</p>
+        <p className="cam-warn" role="status">This browser could not keep the screen on. If it locks, sharing stops. Turn off the screen lock for now, or keep DropLink in front.</p>
       )}
+      {snap.status === 'live' && snap.awake && <p className="muted small">The screen stays on while this device shares.</p>}
       {battery && (battery.level <= 0.2 && !battery.charging
         ? <p className="cam-warn" role="alert">Battery is at {Math.round(battery.level * 100)}% and not charging. Plug this device in to keep sharing.</p>
         : <p className="muted small">Battery {Math.round(battery.level * 100)}%{battery.charging ? ' · charging' : ''}</p>)}
@@ -1148,6 +1247,11 @@ function SharePanel({ node }: { node: CameraNodeApi }) {
         <button className="nm-btn sm" onClick={() => node.setSpeaker(!snap.speaker)} aria-pressed={snap.speaker}>
           {snap.speaker ? <VolumeIcon /> : <MuteIcon />} {snap.speaker ? 'Hear watchers' : 'Watchers muted'}
         </button>
+        {snap.torchAvailable && (
+          <button className={'nm-btn sm' + (snap.torch ? ' primary' : '')} onClick={() => void node.setTorch(!snap.torch)} aria-pressed={snap.torch}>
+            <FlashlightIcon /> {snap.torch ? 'Flashlight on' : 'Flashlight'}
+          </button>
+        )}
         {snap.canFlip && <button className="nm-btn sm" onClick={() => void node.flip()}><SwitchCameraIcon /> Switch camera</button>}
         <button className="nm-btn sm" onClick={() => setKiosk(true)}><ExpandIcon /> Kiosk screen</button>
         <span className="spacer" />

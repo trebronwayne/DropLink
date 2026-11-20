@@ -433,3 +433,47 @@ export function SharingBanner({ snap, onStop, onOpen }: { snap: NodeSnapshot; on
     </div>
   )
 }
+
+/* ---------------------------------------------------------------------------------------------- */
+/* Screen stays on: fallback when the Wake Lock API is missing or refused                          */
+/* ---------------------------------------------------------------------------------------------- */
+
+/**
+ * Plays a hidden, silent picture that is redrawn every second. A page that is playing video is not put to sleep by
+ * most browsers, which covers the ones that have no Wake Lock API. Returns a function that stops it.
+ */
+export function startNoSleep(): () => void {
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = 16
+    canvas.height = 16
+    const ctx = canvas.getContext('2d')
+    const stream = canvas.captureStream?.(2)
+    if (!ctx || !stream) return () => undefined
+    let flip = false
+    const draw = () => { flip = !flip; ctx.fillStyle = flip ? '#010101' : '#000'; ctx.fillRect(0, 0, 16, 16) }
+    draw()
+    const timer = window.setInterval(draw, 1000)
+    const video = document.createElement('video')
+    video.setAttribute('playsinline', '')
+    video.muted = true
+    video.loop = true
+    video.srcObject = stream
+    Object.assign(video.style, { position: 'fixed', width: '2px', height: '2px', opacity: '0.01', pointerEvents: 'none', left: '0', top: '0' })
+    video.setAttribute('aria-hidden', 'true')
+    document.body.appendChild(video)
+    const play = () => { void video.play().catch(() => undefined) }
+    play()
+    // Some browsers only allow playback after a touch; the first one starts it.
+    const kick = () => { play(); window.removeEventListener('pointerdown', kick) }
+    window.addEventListener('pointerdown', kick)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('pointerdown', kick)
+      video.pause()
+      video.srcObject = null
+      video.remove()
+      stream.getTracks().forEach(t => t.stop())
+    }
+  } catch { return () => undefined }
+}

@@ -1,9 +1,9 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { api, AuthError, qrUrl, cachedBrowse, Entry, fileUrl, LockedError, OfflineError, Share, thumbUrl } from './api'
 import {
   ArrowLeftIcon, ArrowRightIcon, CameraIcon, CheckIcon, ChevronRightIcon, ClockIcon, CloseIcon, DownloadIcon, FileTypeIcon, GaugeIcon, GridIcon,
   HeartIcon, HelpIcon, HomeIcon, KeyboardIcon, ListIcon, Logo, OfflineIcon, PlayIcon, PlusIcon, QrIcon, RefreshIcon, SearchIcon, SettingsIcon, ShieldIcon, SortIcon, StarFillIcon, StarIcon,
-  UploadIcon, ZoomInIcon, ZoomOutIcon
+  UploadIcon, ZoomInIcon, ZoomOutIcon, PlayerIcon, EyeIcon
 } from './icons'
 import { Reconnect } from './Reconnect'
 import { Aubree, AubreeState } from './Aubree'
@@ -23,7 +23,7 @@ type Route = { share: string; segments: string[] }
 type SortKey = 'name' | 'size' | 'modified'
 type ViewMode = 'list' | 'grid'
 type Filter = 'all' | 'image' | 'video' | 'audio' | 'doc'
-const PAGES = ['speed', 'favorites', 'recent', 'settings', 'inbox', 'live', 'camera']
+const PAGES = ['speed', 'favorites', 'recent', 'settings', 'inbox', 'live', 'camera', 'player']
 
 function parseHash(): Route {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent)
@@ -43,9 +43,9 @@ function Progress({ share, path }: { share: string; path: string }) {
 
 const SHORTCUTS: [string, string][] = [
   ['Space', 'Play or pause'], ['J  /  L', 'Back or forward 10 seconds'], ['←  /  →', 'Back or forward 5 seconds'],
-  ['N  /  P', 'Next or previous track'], ['M', 'Mute or unmute'], ['↑  /  ↓', 'Volume (full player)'],
+  ['N  /  P', 'Next or previous track'], ['M', 'Mute or unmute'], ['↑  /  ↓', 'Volume (media player)'],
   ['F', 'Fullscreen video'], ['S  /  R', 'Shuffle / repeat'], ['>', 'Change playback speed'],
-  ['/', 'Filter this folder'], ['U', 'Send files to this phone'], ['?', 'Show this list'], ['Esc', 'Close a window or the full player']
+  ['/', 'Filter this folder'], ['U', 'Send files to this phone'], ['Right-click  /  press and hold', 'Quick preview of a song or video'], ['?', 'Show this list'], ['Esc', 'Close a window or the quick preview']
 ]
 
 function ShortcutsDialog({ onClose }: { onClose: () => void }) {
@@ -242,22 +242,106 @@ function Breadcrumbs({ share, shareName, segments }: { share: string; shareName:
   )
 }
 
+/**
+ * Right-click, the menu key, or pressing and holding on a touch screen. A long press also swallows the click that follows it,
+ * so releasing the finger does not open the file as well.
+ */
+function useLongPress(cb: ((x: number, y: number) => void) | null) {
+  const timer = useRef(0)
+  const origin = useRef<{ x: number; y: number } | null>(null)
+  const fired = useRef(0)
+  const clear = () => { window.clearTimeout(timer.current); origin.current = null }
+  if (!cb) return {}
+  return {
+    onPointerDown: (ev: React.PointerEvent) => {
+      if (ev.pointerType === 'mouse') return
+      origin.current = { x: ev.clientX, y: ev.clientY }
+      window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => {
+        const o = origin.current
+        fired.current = Date.now()
+        try { navigator.vibrate?.(12) } catch { /* no vibration here */ }
+        clear()
+        if (o) cb(o.x, o.y)
+      }, 520)
+    },
+    onPointerMove: (ev: React.PointerEvent) => { const o = origin.current; if (o && Math.hypot(ev.clientX - o.x, ev.clientY - o.y) > 10) clear() },
+    onPointerUp: clear,
+    onPointerCancel: clear,
+    onPointerLeave: clear,
+    onContextMenu: (ev: React.MouseEvent) => { ev.preventDefault(); if (Date.now() - fired.current < 900) return; cb(ev.clientX, ev.clientY) },
+    onClickCapture: (ev: React.MouseEvent) => { if (Date.now() - fired.current < 700) { ev.preventDefault(); ev.stopPropagation() } }
+  }
+}
+
+type MenuState = { e: Entry; x: number; y: number }
+
+function MediaMenu({ menu, share, path, fav, onClose, onPlay, onPreview, onQueue, onFav }: {
+  menu: MenuState; share: string; path: string; fav: boolean; onClose: () => void
+  onPlay: () => void; onPreview: () => void; onQueue: () => void; onFav: () => void
+}) {
+  const box = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: menu.x, top: menu.y })
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setPos({ left: Math.max(8, Math.min(menu.x, window.innerWidth - r.width - 8)), top: Math.max(8, Math.min(menu.y, window.innerHeight - r.height - 8)) })
+    el.querySelector<HTMLElement>('button, a')?.focus()
+  }, [menu])
+  useEffect(() => {
+    const away = (ev: Event) => { if (!box.current?.contains(ev.target as Node)) onClose() }
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); onClose(); return }
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault()
+        const items = Array.from(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+        const at = items.indexOf(document.activeElement as HTMLElement)
+        items[(at + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', away, true)
+    document.addEventListener('keydown', key)
+    window.addEventListener('scroll', onClose, true)
+    window.addEventListener('resize', onClose)
+    return () => {
+      document.removeEventListener('pointerdown', away, true)
+      document.removeEventListener('keydown', key)
+      window.removeEventListener('scroll', onClose, true)
+      window.removeEventListener('resize', onClose)
+    }
+  }, [onClose])
+  const run = (f: () => void) => () => { onClose(); f() }
+  return (
+    <div ref={box} className="ctx-menu nm-raised" role="menu" aria-label={`Options for ${menu.e.name}`} style={{ left: pos.left, top: pos.top }}>
+      <div className="ctx-title ellipsis">{stripExt(menu.e.name)}</div>
+      <button role="menuitem" onClick={run(onPlay)}><PlayerIcon width={18} height={18} /> Play in the media player</button>
+      <button role="menuitem" onClick={run(onPreview)}><EyeIcon width={18} height={18} /> Quick preview</button>
+      <button role="menuitem" onClick={run(onQueue)}><PlusIcon width={18} height={18} /> Add to queue</button>
+      <button role="menuitem" onClick={run(onFav)}>{fav ? <StarFillIcon width={18} height={18} /> : <StarIcon width={18} height={18} />} {fav ? 'Remove from favorites' : 'Add to favorites'}</button>
+      <a role="menuitem" href={fileUrl(share, path, true)} onClick={onClose}><DownloadIcon width={18} height={18} /> Download</a>
+    </div>
+  )
+}
+
 type RowProps = {
   e: Entry; share: string; dir: string[]; view: ViewMode; selecting: boolean; selected: boolean; fav: boolean; playingNow: boolean
   onOpen: (e: Entry) => void; onSelect: (e: Entry) => void; onFav: (e: Entry) => void; onQueue: (e: Entry) => void
+  onMenu: (e: Entry, x: number, y: number) => void
 }
-const Item = memo(function Item({ e, share, dir, view, selecting, selected, fav, playingNow, onOpen, onSelect, onFav, onQueue }: RowProps) {
+const Item = memo(function Item({ e, share, dir, view, selecting, selected, fav, playingNow, onOpen, onSelect, onFav, onQueue, onMenu }: RowProps) {
   const kind = kindOf(e)
   const path = [...dir, e.name].join('/')
   const prefetch = () => { if (e.isDir) api.prefetch(share, path) }
   const media = isMedia(kind)
   const click = () => (selecting ? onSelect(e) : onOpen(e))
+  const press = useLongPress(media && !selecting ? (x, y) => onMenu(e, x, y) : null)
   const check = selecting && <span className={'check' + (selected ? ' on' : '')} aria-hidden="true">{selected && <CheckIcon width={14} height={14} />}</span>
 
   if (view === 'grid') {
     const thumb = (kind === 'image' || kind === 'video' || kind === 'pdf') && e.size > 0
     return (
-      <div className={'tile nm-raised' + (selected ? ' selected' : '') + (playingNow ? ' playing' : '')} onPointerEnter={prefetch} onTouchStart={prefetch}>
+      <div className={'tile nm-raised' + (selected ? ' selected' : '') + (playingNow ? ' playing' : '') + (media ? ' is-media' : '')} onPointerEnter={prefetch} onTouchStart={prefetch} {...press}>
         <button className="tile-hit" onClick={click} title={e.name}>
           <span className="thumb nm-inset">
             {thumb ? <img src={thumbUrl(share, path)} alt="" loading="lazy" decoding="async" onError={ev => { ev.currentTarget.style.display = 'none' }} /> : null}
@@ -274,7 +358,7 @@ const Item = memo(function Item({ e, share, dir, view, selecting, selected, fav,
     )
   }
   return (
-    <div className={'row-wrap' + (selected ? ' selected' : '') + (playingNow ? ' playing' : '')} role="listitem" onPointerEnter={prefetch} onTouchStart={prefetch}>
+    <div className={'row-wrap' + (selected ? ' selected' : '') + (playingNow ? ' playing' : '') + (media ? ' is-media' : '')} role="listitem" onPointerEnter={prefetch} onTouchStart={prefetch} {...press}>
       <button className="row" onClick={click}>
         {check}
         <span className="name"><FileTypeIcon kind={kind} size={28} /><span className="ellipsis">{e.name}</span></span>
@@ -312,6 +396,7 @@ function Browser({ route, shareName, fav, recents }: { route: Route; shareName: 
   const [selecting, setSelecting] = useState(false)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [limit, setLimit] = useState(CHUNK)
+  const [menu, setMenu] = useState<MenuState | null>(null)
   const sentinel = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -375,6 +460,8 @@ function Browser({ route, shareName, fav, recents }: { route: Route; shareName: 
       player.play(queue, Math.max(0, mediaFiles.findIndex(f => f.name === e.name)))
     } else setOpenName(e.name)
   }, [route.share, route.segments, mediaFiles, toTrack, player, recents, ref])
+  const onMenu = useCallback((e: Entry, x: number, y: number) => setMenu({ e, x, y }), [])
+  const closeMenu = useCallback(() => setMenu(null), [])
   const onSelect = useCallback((e: Entry) => setPicked(p => { const n = new Set(p); n.has(e.name) ? n.delete(e.name) : n.add(e.name); return n }), [])
   const onFav = useCallback((e: Entry) => { const r = ref(e); toast.show(fav.has(r) ? `Removed “${e.name}” from favorites` : `Added “${e.name}” to favorites`); fav.toggle(r) }, [fav, ref, toast])
   const onQueue = useCallback((e: Entry) => { player.enqueue([toTrack(e)]); toast.show(`Added “${stripExt(e.name)}” to the queue`) }, [player, toTrack, toast])
@@ -463,18 +550,22 @@ function Browser({ route, shareName, fav, recents }: { route: Route; shareName: 
         <div className="nm-raised list" role="list">
           <div className="row head" aria-hidden="true"><span className="name">Name</span><span className="date">Modified</span><span className="size">Size</span></div>
           {shown.map(e => <Item key={e.name} e={e} share={route.share} dir={route.segments} view="list" selecting={selecting} selected={picked.has(e.name)}
-            fav={fav.has(ref(e))} playingNow={currentKey === route.share + '|' + join(e.name)} onOpen={onOpen} onSelect={onSelect} onFav={onFav} onQueue={onQueue} />)}
+            fav={fav.has(ref(e))} playingNow={currentKey === route.share + '|' + join(e.name)} onOpen={onOpen} onSelect={onSelect} onFav={onFav} onQueue={onQueue} onMenu={onMenu} />)}
         </div>
       )}
       {entries && visible.length > 0 && view === 'grid' && (
         <div className="grid-view">
           {shown.map(e => <Item key={e.name} e={e} share={route.share} dir={route.segments} view="grid" selecting={selecting} selected={picked.has(e.name)}
-            fav={fav.has(ref(e))} playingNow={currentKey === route.share + '|' + join(e.name)} onOpen={onOpen} onSelect={onSelect} onFav={onFav} onQueue={onQueue} />)}
+            fav={fav.has(ref(e))} playingNow={currentKey === route.share + '|' + join(e.name)} onOpen={onOpen} onSelect={onSelect} onFav={onFav} onQueue={onQueue} onMenu={onMenu} />)}
         </div>
       )}
       {shown.length < visible.length && <div ref={sentinel} className="sentinel" />}
       {entries && visible.length > 0 && (
         <p className="summary muted small">{visible.length} item{visible.length === 1 ? '' : 's'}{files.length > 0 ? ` · ${formatSize(totalSize)}` : ''}</p>
+      )}
+      {menu && (
+        <MediaMenu menu={menu} share={route.share} path={join(menu.e.name)} fav={fav.has(ref(menu.e))} onClose={closeMenu}
+          onPlay={() => onOpen(menu.e)} onPreview={() => player.preview(toTrack(menu.e))} onQueue={() => onQueue(menu.e)} onFav={() => onFav(menu.e)} />
       )}
       {openIndex >= 0 && (
         <Viewer share={route.share} dir={route.segments} files={viewable} index={openIndex}
@@ -760,10 +851,8 @@ function ConnectDialog({ onClose }: { onClose: () => void }) {
 
 /* ---------- App shell ---------- */
 
-function Shell() {
+function Shell({ fav, recents }: { fav: ReturnType<typeof useFavorites>; recents: ReturnType<typeof useRecents> }) {
   const theme = useTheme()
-  const fav = useFavorites()
-  const recents = useRecents()
   const player = usePlayer()
   const disp = useDisplay()
   const [help, setHelp] = useState(false)
@@ -845,8 +934,8 @@ function Shell() {
         case 'l': player.seekBy(10); break
         case 'ArrowLeft': if (!onControl) player.seekBy(-5); break
         case 'ArrowRight': if (!onControl) player.seekBy(5); break
-        case 'ArrowUp': if (player.mode === 'full') { e.preventDefault(); player.volumeBy(0.05) } break
-        case 'ArrowDown': if (player.mode === 'full') { e.preventDefault(); player.volumeBy(-0.05) } break
+        case 'ArrowUp': if (player.mode === 'page' || player.mode === 'preview') { e.preventDefault(); player.volumeBy(0.05) } break
+        case 'ArrowDown': if (player.mode === 'page' || player.mode === 'preview') { e.preventDefault(); player.volumeBy(-0.05) } break
         case 'm': player.toggleMute(); break
         case 'f': if (player.current.kind === 'video') player.fullscreen(); break
         case 's': player.toggleShuffle(); break
@@ -889,10 +978,21 @@ function Shell() {
     }
   }, [authed])
 
+  // The media player page sits just under the top bar, whatever height that has on this screen.
+  useEffect(() => {
+    const bar = document.querySelector<HTMLElement>('.appbar')
+    if (!bar) return
+    const set = () => document.documentElement.style.setProperty('--appbar-h', `${Math.round(bar.getBoundingClientRect().height)}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(bar)
+    return () => ro.disconnect()
+  }, [authed])
+
   // Page title and focus follow the route, so screen readers announce where you are.
   const firstRoute = useRef(true)
   useEffect(() => {
-    const names: Record<string, string> = { favorites: 'Favorites', recent: 'Recent', settings: 'Settings', speed: 'Speed test', inbox: 'From the phone', live: 'Live player', camera: 'Cameras' }
+    const names: Record<string, string> = { favorites: 'Favorites', recent: 'Recent', settings: 'Settings', speed: 'Speed test', inbox: 'From the phone', live: 'Live player', camera: 'Cameras', player: 'Media player' }
     const place = names[route.share] ?? (route.share ? (route.segments[route.segments.length - 1] ?? shares.find(x => x.id === route.share)?.name ?? '') : 'Home')
     const badge = inbox.waiting > 0 ? `(${inbox.waiting}) ` : ''
     document.title = badge + (place ? `${place} · DropLink` : 'DropLink')
@@ -916,6 +1016,9 @@ function Shell() {
       <header className="appbar">
         <a className="brand" href="#/"><Logo size={28} /><span>DropLink</span></a>
         <span className="spacer" />
+        <a className={'nm-btn sm player-btn' + (page === 'player' ? ' on' : '') + (player.playing ? ' playing' : '')} href="#/player" aria-label={player.current ? `Media player, playing ${stripExt(player.current.name)}` : 'Media player'} aria-current={page === 'player' ? 'page' : undefined}>
+          <PlayerIcon width={18} height={18} /> <span className="hide-narrow">Player</span>{player.current && <span className="player-dot" aria-hidden="true" />}
+        </a>
         {installEvent && !standalone && <button className="nm-btn sm" onClick={() => installEvent.prompt()}><DownloadIcon width={18} height={18} /> <span className="hide-narrow">Install app</span></button>}
         <button className="nm-btn sm" onClick={() => setConnect(true)}><QrIcon width={18} height={18} /> <span className="hide-narrow">Connect a device</span></button>
         <button className="nm-btn sm" onClick={() => setUploadFiles([])} aria-label="Send files to this phone" title="Send files to this phone ( U )"><UploadIcon width={18} height={18} /> <span className="hide-narrow">Send files</span></button>
@@ -935,6 +1038,7 @@ function Shell() {
           {nav('#/', 'Home', <HomeIcon />, !route.share)}
           {nav('#/favorites', 'Favorites', <StarIcon />, page === 'favorites')}
           {nav('#/recent', 'Recent', <ClockIcon />, page === 'recent')}
+          {nav('#/player', 'Media player', <PlayerIcon />, page === 'player')}
           {liveFeed.live.on && nav('#/live', 'Live player', <PlayIcon />, page === 'live')}
           {nav('#/camera', camNode.snap.status === 'live' ? 'Cameras · sharing' : 'Cameras', <CameraIcon />, page === 'camera', cameras.online)}
           {nav('#/inbox', 'From the phone', <DownloadIcon />, page === 'inbox', inbox.waiting)}
@@ -950,7 +1054,8 @@ function Shell() {
         </nav>
         <main className="content" id="content" tabIndex={-1}>
           {down && <Reconnect onRetry={loadShares} />}
-          {page === 'speed' ? <SpeedTest />
+          {page === 'player' ? <h2 className="sr-only">Media player</h2>
+            : page === 'speed' ? <SpeedTest />
             : page === 'live' ? <LivePage live={liveFeed.live} receivedAt={liveFeed.receivedAt} />
             : page === 'camera' ? <CameraPage nodes={cameras.nodes} loaded={cameras.loaded} failed={cameras.failed} node={camNode} onAuthLost={() => setAuthed(false)} onUpload={files => setUploadFiles(files)} />
             : page === 'inbox' ? <InboxPage items={inbox.items} onRefresh={inbox.refresh} error={inbox.error} checkedAt={inbox.checkedAt} />
@@ -981,5 +1086,8 @@ function Shell() {
 }
 
 export default function App() {
-  return <ToastProvider><PlayerProvider><Shell /></PlayerProvider></ToastProvider>
+  // Favorites and recents are shared with the player, so what it plays shows up in Recent and its lists.
+  const fav = useFavorites()
+  const recents = useRecents()
+  return <ToastProvider><PlayerProvider recents={recents} fav={fav}><Shell fav={fav} recents={recents} /></PlayerProvider></ToastProvider>
 }

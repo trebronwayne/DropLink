@@ -156,3 +156,7 @@ export const MicOffIcon = (p: IconProps) => <svg {...line(p)}><rect x="9" y="3.5
 export const SwitchCameraIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 12a8 8 0 0 1 13.7-5.6L20 9M20 4.5V9h-4.5M20 12a8 8 0 0 1-13.7 5.6L4 15M4 19.5V15h4.5" /></svg>
 export const RecordIcon = (p: IconProps) => <svg {...line({ strokeWidth: 0, fill: 'currentColor', ...p })}><circle cx="12" cy="12" r="6" /></svg>
 export const StopIcon = (p: IconProps) => <svg {...line({ strokeWidth: 0, fill: 'currentColor', ...p })}><rect x="6.5" y="6.5" width="11" height="11" rx="2" /></svg>
+
+export const FlashlightIcon = (p: IconProps) => <svg {...line(p)}><path d="M8 3h8l-1 5H9L8 3Zm1 5-1 3v9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-9l-1-3M12 12v3" /></svg>
+export const PlayerIcon = (p: IconProps) => <svg {...line(p)}><rect x="3.5" y="5" width="17" height="14" rx="3" /><path d="m10.5 9.5 4 2.5-4 2.500v-5Z" fill="currentColor" /></svg>
+export const EyeIcon = (p: IconProps) => <svg {...line(p)}><path d="M2.500 12S6 5.500 12 5.500 21.500 12 21.500 12 18 18.500 12 18.500 2.500 12 2.500 12Z" /><circle cx="12" cy="12" r="2.800" /></svg>

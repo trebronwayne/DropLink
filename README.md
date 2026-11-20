@@ -110,7 +110,7 @@
 |---|---|
 | 📁 **Share folders** | Pick folders with Android's own picker. Read-only, nothing is copied or uploaded. |
 | ⚡ **Fast browsing** | Folders open from a single storage query, are cached, and thumbnails load instead of full photos. |
-| 🎵 **Music and video that keep playing** | A persistent player with queue (reorder and clear), shuffle, repeat, speed, sleep timer, resume where you left off and lock-screen controls. Keep browsing while it plays. |
+| 🎵 **A real media player** | Songs and videos open in a full player page, laid out like a video site, with lists from the folder you are in (All, Music, Videos), Recent and the queue. Shuffle, repeat, speed, sleep timer, resume where you left off and lock-screen controls. A mini bar keeps playing while you browse, and right-click or long-press gives a Quick preview popup. Only the playing file's folder is listed, so nothing is scanned. |
 | 🎥 **Camera Nodes** | Any paired browser can share its camera and microphone, or sound only (you allow it once, always, or never). Other devices watch live in a grid or focus on one, listen, talk back, take snapshots into a gallery, record moments and get motion alerts. A spare phone can start sharing by itself and show a dark kiosk screen. The video goes straight between browsers, not through the phone. Read the [Camera Nodes guide](docs/CAMERA_NODES.md). |
 | 🔁 **Phone to phone** | Pair two phones running DropLink and send files straight between them, fast, with resume, a pinned certificate and the same Ask / Always / Block control. Read the [Phone to phone guide](docs/PHONE_TO_PHONE.md). |
 | 🔔 **Notification sound** | Requests and received files play the DropLink sound. One switch in Settings turns it off. |

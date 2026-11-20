@@ -13,6 +13,17 @@ _Nothing yet._
 - **Transfers > Send files** lists paired phones next to browsers; progress, speed, stop and try again are shown under "Sent to other phones".
 - The server's `/api/info` now also reports the phone's name, live camera count and free space.
 
+### Web client: a real media player
+- Opening a song or video now goes to a full **media player page**, laid out like a video site: a large picture (or cover art), title, seek bar, controls, favorite, volume, speed, sleep timer, picture-in-picture, fullscreen and download, with lists beside it (below it on a phone).
+- The lists come only from the **folder of the file that is playing**, in one folder request, with no scanning of shared folders: **All**, **Music**, **Videos**, plus **Recent** and the **Queue**. A single file opened from Recent or Favorites carries on with the rest of its folder.
+- A **Player** button in the top bar and menu is always one tap away. On other pages a mini bar keeps playing and expands back to the page.
+- The old popup is now only the **Quick preview**: right-click a song or video (or press and hold on a touch screen) and choose it. The same menu also plays, queues, favorites and downloads.
+- Anything that plays is added to Recent automatically.
+
+### Camera Nodes: flashlight and screen that stays on
+- A **Flashlight** button on the sharing device, and on watchers' pictures, when the shared camera has one.
+- The screen is kept awake with the Wake Lock API, taken again whenever the browser lets go, with a hidden playing picture as a fallback for browsers without it.
+
 ### Camera Nodes: more for the web client
 - **Motion alerts** while watching: pick Low, Medium or High, get a message, a beep and (if allowed) a system notification, and a snapshot is saved each time.
 - **Snapshot gallery** that survives reloads, with a viewer, save, delete, and **Send to phone** (one or all) through the normal upload approval.

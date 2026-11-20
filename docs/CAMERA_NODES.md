@@ -11,7 +11,7 @@ The phone running DropLink does **not** need camera or microphone permission. Ev
 2. Name it ("Front door"), choose Back, Front or Both, the quality, and whether to share sound.
 3. Tap **Start sharing** and allow the browser's camera prompt.
 4. The phone's owner gets a notification and chooses **Allow this time**, **Always allow**, or **Deny**.
-5. Keep the page open and the screen on. The page asks the browser to keep the screen awake.
+5. Keep the page open. The page keeps the screen awake with the Wake Lock API, takes it again when the browser lets go, and falls back to a hidden playing picture where that API is missing. If the camera has a flashlight, a Flashlight button appears on the sharing device and on watchers' pictures.
 
 **Watch** (on any other paired device)
 1. Open **Cameras**. Every node is listed as Online or Offline.
