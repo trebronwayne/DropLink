@@ -393,6 +393,13 @@ class MainActivity : ComponentActivity() {
         batterySaver = getSystemService(PowerManager::class.java).isPowerSaveMode
         mediaAccess = hasMediaAccess()
         if (mediaAccess) refreshLibrary()
+        // The certificate may have been renewed for a new network while the app was away; show the current fingerprint.
+        lifecycleScope.launch {
+            try {
+                val current = withContext(Dispatchers.IO) { TlsIdentity.load(applicationContext).fingerprint }
+                if (fingerprint != current) fingerprint = current
+            } catch (_: Throwable) { /* the earlier value stays */ }
+        }
     }
 
     private fun runSelfTest() {

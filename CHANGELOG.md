@@ -6,6 +6,13 @@ _Nothing yet._
 
 ## 0.9.0 (19 November 2026)
 
+### HTTPS that works for everyone
+- **No more "no response"** when someone opens the phone's address with `http://` or without `https://`. The phone now answers that with a plain-language help page, a Continue button, and the exact clicks for each browser; programs get a redirect. Real HTTPS is unchanged.
+- The certificate now carries the phone's addresses, so browsers no longer add a name-mismatch error. It is issued again (same key) when the phone joins a network it does not list, with no restart.
+- The watchdog now tests the real HTTPS door, and the listener recovers from socket errors, so a dead front end no longer looks healthy.
+- Phones pair using the public key, so renewing the certificate does not break a pairing.
+- "Testing mode (HTTP)" is now "Skip the browser warning (plain HTTP)" and says plainly what it trades away. See `docs/HTTPS.md`.
+
 ### Phone-to-phone sending (new)
 - Two DropLink phones on the same Wi-Fi or hotspot can now pair and send files straight to each other. Open **Servers**, tap **Pair with this phone**, compare the code on both screens and let the other owner approve it once. To send both ways, pair from both phones.
 - Files go over the same resumable upload API browsers use, so the receiving owner keeps the same control (**Ask**, **Always** or **Block** under Devices). A dropped connection continues from the byte where it stopped, and two files move at once for speed. Wi-Fi is held at full speed while files move.

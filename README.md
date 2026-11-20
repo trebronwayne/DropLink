@@ -102,7 +102,7 @@
 4. **Connect:** scan the QR code on the Home screen with the other device's camera. DropLink opens in its browser with nothing to type.
 5. **Approve** the request on your phone after checking the code matches. That's it.
 
-> The first time, the browser shows a certificate warning. DropLink encrypts everything with its own certificate, so compare the fingerprint shown in the app, then continue.
+> The first time, the browser shows a certificate warning. DropLink encrypts everything with its own certificate, so compare the fingerprint shown in the app, then choose Advanced and continue. If someone types the address without `https://`, the phone shows a short help page with the clicks for their browser instead of an error. See [HTTPS and browser warnings](docs/HTTPS.md).
 
 ## ✨ Features
 
@@ -121,7 +121,7 @@
 | 🧩 **Installable web client** | A clean Fluent-style design with light and dark themes, accent colours, favourites, recents, "continue where you left off" and an offline-friendly shell. |
 | ♿ **Accessible by design** | Keyboard shortcuts, screen-reader labels, a skip link, focus that stays in pop-ups, text size, high contrast and reduce-motion settings. |
 | 🔄 **Reconnects by itself** | If the address changes, scan the new QR code from the "Can't reach the phone" screen. |
-| 🛡️ **Built to keep hosting** | Foreground service, wake and Wi-Fi locks, a self-checking watchdog, and a warning when Battery Saver would pause it. |
+| 🛡️ **Built to keep hosting** | Foreground service, wake and Wi-Fi locks, a watchdog that tests the HTTPS door itself, and a warning when Battery Saver would pause it. |
 | 🚀 **Speed test** | Measure the link between a device and the phone. |
 | 🐶 **Aubree, the DropLink mascot** | Aubree welcomes people who ask to connect, waits with them for approval, celebrates when a device joins, and shows up for empty screens, errors and low power. She comes from [AubreeKit](https://github.com/trebronwayne/AubreeKit). |
 

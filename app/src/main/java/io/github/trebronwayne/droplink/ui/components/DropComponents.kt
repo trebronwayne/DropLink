@@ -279,7 +279,7 @@ fun DropDeviceCard(
                 DropText("Certificate fingerprint", style = type.caption, color = secondary)
                 DropText(fingerprint.take(23) + "…", style = type.bodyStrong, fontFamily = FontFamily.Monospace)
                 DropText(
-                    "Browsers warn that this certificate is self-signed. That is expected. Before continuing, compare this fingerprint with the one in the browser's certificate details.",
+                    "Browsers warn once that this certificate is self-signed. That is expected: choose Advanced, then continue. Typing the address without https:// shows a help page instead of an error. To be sure it is this phone, compare this fingerprint with the one in the browser's certificate details.",
                     style = type.caption, color = secondary
                 )
             }

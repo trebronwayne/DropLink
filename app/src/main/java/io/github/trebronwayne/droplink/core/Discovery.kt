@@ -16,7 +16,9 @@ data class DiscoveredNode(
     val nodeId: String,
     val host: String,
     val port: Int,
-    val fingerprint: String
+    val fingerprint: String,
+    /** Hash of the node's public key. Stays the same when its certificate is renewed. Empty for older versions. */
+    val keyPin: String = ""
 )
 
 /** LAN discovery with Android NSD (mDNS/DNS-SD): advertises this node while hosting and lists other nodes. */
@@ -71,7 +73,7 @@ object Discovery {
         }
     }
 
-    fun advertise(context: Context, nodeId: String, fingerprint: String, name: String, port: Int) {
+    fun advertise(context: Context, nodeId: String, fingerprint: String, name: String, port: Int, keyPin: String = "") {
         synchronized(lock) {
             if (registrationListener != null) return
             val nsd = context.applicationContext.getSystemService(NsdManager::class.java) ?: return
@@ -82,6 +84,7 @@ object Discovery {
                 setPort(port)
                 setAttribute("id", nodeId)
                 setAttribute("fp", fingerprint.replace(":", ""))
+                if (keyPin.isNotEmpty()) setAttribute("pk", keyPin)
                 setAttribute("name", name)
             }
             val listener = object : NsdManager.RegistrationListener {
@@ -157,7 +160,8 @@ object Discovery {
             nodeId = nodeId,
             host = host.hostAddress ?: return,
             port = info.port,
-            fingerprint = attr("fp")
+            fingerprint = attr("fp"),
+            keyPin = attr("pk")
         )
         _nodes.update { list -> list.filterNot { it.serviceName == node.serviceName } + node }
     }

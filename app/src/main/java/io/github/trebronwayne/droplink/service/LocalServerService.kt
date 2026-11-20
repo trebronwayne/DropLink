@@ -139,7 +139,7 @@ class LocalServerService : Service() {
                 server = engine
                 if (tls != null) {
                     stage = "starting the secure (HTTPS) front end"
-                    val front = TlsFrontend(tls, PORT, backendPort)
+                    val front = TlsFrontend(tls, PORT, backendPort, Discovery.displayName())
                     front.start()
                     frontend = front
                 }
@@ -154,11 +154,11 @@ class LocalServerService : Service() {
                 startWatchdog()
                 scheduleKeepAlive()
                 EventLog.add("Standing with Android: ${standing()}")
-                EventLog.add("Hosting started on port $PORT (${if (useHttp) "HTTP testing mode" else "HTTPS"})")
+                EventLog.add("Hosting started on port $PORT (${if (useHttp) "plain HTTP, warning skipped" else "HTTPS"})")
                 try {
                     Discovery.advertise(
                         applicationContext, NodeIdentity.getOrCreateNodeId(applicationContext),
-                        tls?.fingerprint.orEmpty(), Discovery.displayName(), PORT
+                        tls?.fingerprint.orEmpty(), Discovery.displayName(), PORT, tls?.keyPin.orEmpty()
                     )
                 } catch (e: Throwable) {
                     CrashLog.record("Discovery could not start (hosting continues)", e)
@@ -302,8 +302,11 @@ class LocalServerService : Service() {
                         failures = 0
                         continue // the server was frozen too; judge it on the next beat, not this one
                     }
-                    if (loopbackAnswers()) {
+                    // In HTTPS mode the check goes through the real TLS door as well: a front end that stopped listening
+                    // would otherwise look healthy while every browser got "no response".
+                    if (loopbackAnswers() && (frontend?.selfTest() != false)) {
                         failures = 0
+                        refreshCertificate()
                     } else {
                         failures += 1
                         EventLog.add("Server did not answer its own check ($failures)")
@@ -342,6 +345,27 @@ class LocalServerService : Service() {
             }
         } catch (_: Exception) {
             false
+        }
+    }
+
+    /**
+     * The phone may have joined a Wi-Fi network or started a hotspot whose address the certificate does not list yet.
+     * Browsers reject a certificate for an address it does not name, so a new one (same key) is issued and used
+     * straight away, and the new fingerprint is announced to the network.
+     */
+    private fun refreshCertificate() {
+        val front = frontend ?: return
+        try {
+            val fresh = TlsIdentity.refresh(applicationContext) ?: return
+            front.updateIdentity(fresh)
+            EventLog.add("Security certificate updated for this network's addresses")
+            Discovery.stopAdvertising()
+            Discovery.advertise(
+                applicationContext, NodeIdentity.getOrCreateNodeId(applicationContext),
+                fresh.fingerprint, Discovery.displayName(), PORT, fresh.keyPin
+            )
+        } catch (e: Throwable) {
+            CrashLog.record("Certificate refresh failed", e)
         }
     }
 

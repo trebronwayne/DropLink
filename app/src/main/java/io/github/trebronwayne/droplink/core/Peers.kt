@@ -57,7 +57,7 @@ data class Peer(
     val name: String,
     val host: String,
     val port: Int,
-    /** SHA-256 fingerprint of the other phone's certificate, pinned when pairing. Empty when it hosts plain HTTP. */
+    /** SHA-256 pin of the other phone's public key (or, for older versions, its certificate), set when pairing. Empty when it hosts plain HTTP. */
     val fingerprint: String,
     /** The session token the other phone gave this phone. It is sent as a cookie, exactly like a browser would. */
     val token: String,
@@ -181,7 +181,9 @@ object Peers {
             }
             show(PeerPairing.Phase.Starting, "Contacting ${node.name}…", "")
             try {
-                val t = Target(node.host, node.port, node.fingerprint)
+                // Pin the key when the other phone advertises it, so a renewed certificate does not break the pairing.
+                val pin = node.keyPin.ifEmpty { node.fingerprint }
+                val t = Target(node.host, node.port, pin)
                 val body = JSONObject().put("name", Discovery.displayName()).put("model", Build.MODEL)
                     .put("platform", "DropLink for Android")
                 val first = call(t, null, "/api/pair/request", "POST", body.toString())
@@ -210,7 +212,7 @@ object Peers {
                             if (token.isNullOrEmpty()) {
                                 show(PeerPairing.Phase.Failed, "${node.name} approved, but no session came back. Try again.")
                             } else {
-                                savePeer(Peer(node.nodeId, node.name, node.host, node.port, node.fingerprint, token, System.currentTimeMillis()))
+                                savePeer(Peer(node.nodeId, node.name, node.host, node.port, pin, token, System.currentTimeMillis()))
                                 EventLog.add("Paired with ${node.name}")
                                 show(PeerPairing.Phase.Done, "Paired with ${node.name}. You can now send files to it.")
                             }
@@ -582,7 +584,7 @@ object Peers {
     private fun targetFor(peer: Peer): Target {
         val live = Discovery.nodes.value.firstOrNull { it.nodeId == peer.nodeId }
         // Always use the fingerprint pinned when pairing. Only a phone that was plain HTTP then may adopt a new one.
-        val fp = peer.fingerprint.ifEmpty { live?.fingerprint.orEmpty() }
+        val fp = peer.fingerprint.ifEmpty { live?.let { it.keyPin.ifEmpty { it.fingerprint } } ?: "" }
         return if (live != null) Target(live.host, live.port, fp) else Target(peer.host, peer.port, fp)
     }
 
@@ -629,8 +631,10 @@ object Peers {
             override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
             override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
                 val leaf = chain?.firstOrNull() ?: throw CertificateException("The other phone sent no certificate.")
-                val got = MessageDigest.getInstance("SHA-256").digest(leaf.encoded).joinToString("") { "%02x".format(it) }
-                if (got != wanted) throw CertificateException("The certificate does not match the phone you paired with.")
+                val digest = MessageDigest.getInstance("SHA-256")
+                val byKey = digest.digest(leaf.publicKey.encoded).joinToString("") { "%02x".format(it) }
+                val byCertificate = digest.digest(leaf.encoded).joinToString("") { "%02x".format(it) }
+                if (wanted != byKey && wanted != byCertificate) throw CertificateException("The certificate does not match the phone you paired with.")
             }
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
         }

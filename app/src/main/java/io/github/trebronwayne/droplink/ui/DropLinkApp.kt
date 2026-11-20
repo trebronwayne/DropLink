@@ -747,9 +747,9 @@ private fun SettingsContent(nodeId: String, host: HostUi, pairing: PairingUi, pl
         )
         DropRowDivider()
         DropSwitchRow(
-            "Testing mode (HTTP)",
+            "Skip the browser warning (plain HTTP)",
             checked = host.useHttp, onCheckedChange = host.onUseHttpChange, enabled = !host.isHosting,
-            subtitle = if (host.isHosting) "Stop hosting to change this." else "Turns encryption off. Only for finding problems on a network you control.",
+            subtitle = if (host.isHosting) "Stop hosting to change this." else "Turns encryption off so browsers stop warning. Files still transfer, but anyone on the Wi-Fi could read them, and camera sharing and installing the web app stop working. Use only on a network you trust.",
             icon = Icons.Outlined.Science
         )
     }
