@@ -445,6 +445,18 @@ function Browser({ route, shareName, fav, recents }: { route: Route; shareName: 
   const files = useMemo(() => visible.filter(e => !e.isDir), [visible])
   const viewable = useMemo(() => files.filter(f => !isMedia(kindOf(f))), [files])
   const mediaFiles = useMemo(() => files.filter(f => isMedia(kindOf(f))), [files])
+  // Once, the first time a folder with songs or videos is shown: how to get the quick preview.
+  useEffect(() => {
+    if (mediaFiles.length === 0) return
+    let seen = false
+    try { seen = localStorage.getItem('dl.hint.preview') === '1' } catch { /* shows once per visit */ }
+    if (seen) return
+    const t = window.setTimeout(() => {
+      toast.show('Tip: right-click, or press and hold, a song or video for a quick preview.')
+      try { localStorage.setItem('dl.hint.preview', '1') } catch { /* not remembered */ }
+    }, 1500)
+    return () => window.clearTimeout(t)
+  }, [mediaFiles.length > 0]) // eslint-disable-line react-hooks/exhaustive-deps
   const openIndex = openName === null ? -1 : viewable.findIndex(f => f.name === openName)
   const totalSize = files.reduce((sum, f) => sum + f.size, 0)
   const join = useCallback((name: string) => [...route.segments, name].join('/'), [route.segments])

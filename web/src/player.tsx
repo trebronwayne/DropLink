@@ -1,13 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { api, cachedBrowse, Entry, fileUrl } from './api'
 import {
-  CloseIcon, DownloadIcon, ExpandIcon, FileTypeIcon, MinimizeIcon, MoonIcon, MuteIcon, NextIcon, PauseIcon, PipIcon, PlayIcon, PrevIcon,
-  RepeatIcon, ShuffleIcon, StarFillIcon, StarIcon, VolumeIcon
+  ChevronDownIcon, CloseIcon, DownloadIcon, ExpandIcon, FileTypeIcon, NextIcon, PauseIcon, PlayIcon, PrevIcon, RepeatIcon, ShuffleIcon, StarFillIcon, StarIcon
 } from './icons'
 import { formatSize, formatTime, kindOf, stripExt } from './util'
 import { getResume, load, Ref, save, setResume, useFavorites, useRecents } from './prefs'
 import { useToast } from './toast'
 import { PlayerLists, ListTab } from './playerlists'
+import { StageControls } from './playerchrome'
 
 export type Track = { share: string; path: string; name: string; kind: 'audio' | 'video'; size: number }
 type Repeat = 'off' | 'all' | 'one'
@@ -70,6 +70,15 @@ export function PlayerProvider({ children, recents, fav }: { children: ReactNode
   const [folder, setFolder] = useState<Entry[] | null>(null)
   const [sleep, setSleep] = useState<Sleep>({ kind: 'off' })
   const [, tick] = useState(0)
+  const [buffered, setBuffered] = useState(0)
+  const [chromeActive, setChromeActive] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [flash, setFlash] = useState<{ side: 'l' | 'r'; n: number } | null>(null)
+  const stage = useRef<HTMLDivElement>(null)
+  const idleTimer = useRef(0)
+  const clickTimer = useRef(0)
+  const touch = useRef(false)
   const resumeAt = useRef<number>(saved?.time ?? 0)
   const failures = useRef(0)
   const lastVolume = useRef(1)
@@ -242,7 +251,19 @@ export function PlayerProvider({ children, recents, fav }: { children: ReactNode
   const toggleShuffle = useCallback(() => { setShuffle(!shuffle); toast.show(shuffle ? 'Shuffle off' : 'Shuffle on') }, [shuffle, toast])
   const cycleRepeat = useCallback(() => { const n: Repeat = repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off'; setRepeat(n); toast.show(n === 'off' ? 'Repeat off' : n === 'all' ? 'Repeat all' : 'Repeat one') }, [repeat, toast])
   const cycleRate = useCallback(() => setRate(r => RATES[(RATES.indexOf(r) + 1) % RATES.length] ?? 1), [])
-  const fullscreen = useCallback(() => { media.current?.requestFullscreen?.().catch(() => undefined) }, [])
+  /** The whole stage goes full screen, not just the picture, so the controls laid over it come along. */
+  const fullscreen = useCallback(() => {
+    const el = stage.current
+    if (!el) return
+    if (document.fullscreenElement) { void document.exitFullscreen(); return }
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => undefined)
+    else (media.current as unknown as { webkitEnterFullscreen?: () => void } | null)?.webkitEnterFullscreen?.()
+  }, [])
+  useEffect(() => {
+    const on = () => setIsFullscreen(document.fullscreenElement === stage.current)
+    document.addEventListener('fullscreenchange', on)
+    return () => document.removeEventListener('fullscreenchange', on)
+  }, [])
 
   const start = useCallback((tracks: Track[], at: number, follow: boolean) => {
     autoplay.current = true
@@ -358,7 +379,6 @@ export function PlayerProvider({ children, recents, fav }: { children: ReactNode
   const pct = duration ? (time / duration) * 100 : 0
   const onSeek = (v: number) => { if (media.current) media.current.currentTime = v }
   const pip = () => { const el = media.current; if (el && document.pictureInPictureEnabled) (document.pictureInPictureElement ? document.exitPictureInPicture() : el.requestPictureInPicture()).catch(() => undefined) }
-  const upNext = queue[index + 1]
   const ended = () => {
     if (current) setResume(current.share, current.path, 0, 0)
     if (sleepRef.current.kind === 'end') { setSleep({ kind: 'off' }); setPlaying(false); toast.show('Sleep timer finished. Playback stopped.'); return }
@@ -370,6 +390,39 @@ export function PlayerProvider({ children, recents, fav }: { children: ReactNode
   const folderName = dir ? dir.split('/').pop() : 'Shared folder'
   const hidden = mode === 'closed' || (!current && mode !== 'page')
   const page = mode === 'page'
+  const overlay = (page || mode === 'preview') && !!current
+
+  // Controls sit over the picture and fade away while a video plays and nobody is using it. Music keeps them in view.
+  const reveal = () => {
+    setChromeActive(true)
+    window.clearTimeout(idleTimer.current)
+    idleTimer.current = window.setTimeout(() => setChromeActive(false), 2800)
+  }
+  useEffect(() => () => { window.clearTimeout(idleTimer.current); window.clearTimeout(clickTimer.current) }, [])
+  useEffect(() => { if (flash) { const t = window.setTimeout(() => setFlash(null), 650); return () => window.clearTimeout(t) } }, [flash])
+  const showChrome = !isVideo || !playing || chromeActive || menuOpen
+
+  // Mouse: click plays or pauses, double-click seeks on the sides and goes full screen in the middle.
+  // Touch: a tap shows or hides the controls; double-tap seeks.
+  const onStageClick = () => {
+    if (!isVideo || !current) return
+    if (touch.current) {
+      if (chromeActive && playing) { window.clearTimeout(idleTimer.current); setChromeActive(false) } else reveal()
+      return
+    }
+    window.clearTimeout(clickTimer.current)
+    clickTimer.current = window.setTimeout(toggle, 220)
+  }
+  const onStageDouble = (e: React.MouseEvent<HTMLElement>) => {
+    window.clearTimeout(clickTimer.current)
+    if (!isVideo || !current) return
+    const r = e.currentTarget.getBoundingClientRect()
+    const x = (e.clientX - r.left) / Math.max(1, r.width)
+    if (x < 0.33) { seekBy(-10); setFlash({ side: 'l', n: Date.now() }) }
+    else if (x > 0.67) { seekBy(10); setFlash({ side: 'r', n: Date.now() }) }
+    else fullscreen()
+  }
+  const sleepSubtitle = sleepLeft > 0 ? ` · Sleep in ${sleepLeft} min` : sleep.kind === 'end' ? ' · Sleep at end of track' : ''
 
   return (
     <PlayerCtx.Provider value={ctx}>
@@ -377,31 +430,51 @@ export function PlayerProvider({ children, recents, fav }: { children: ReactNode
       <div className={`dock ${mode} ${isVideo ? 'is-video' : 'is-audio'}${current ? '' : ' is-empty'}`} hidden={hidden} role="region" aria-label="Media player">
         {mode === 'preview' && <div className="dock-scrim" onClick={stop} />}
         <div className="dock-panel nm-raised">
-          <div className="dock-stage">
+          <div
+            ref={stage} className={'dock-stage' + (showChrome ? '' : ' idle')}
+            onPointerDown={e => { touch.current = e.pointerType !== 'mouse' }}
+            onPointerMove={e => { if (e.pointerType === 'mouse' && overlay) reveal() }}
+            onPointerLeave={e => { if (e.pointerType === 'mouse' && playing) { window.clearTimeout(idleTimer.current); idleTimer.current = window.setTimeout(() => setChromeActive(false), 900) } }}
+            onFocus={() => { if (overlay) reveal() }}
+          >
             <video ref={media} playsInline preload="auto" aria-label={current ? stripExt(current.name) : 'Player'}
-              onPlay={() => { setPlaying(true); autoplay.current = true }}
+              onPlay={() => { setPlaying(true); autoplay.current = true; reveal() }}
               onPause={() => setPlaying(false)}
               onWaiting={() => setBuffering(true)}
               onPlaying={() => setBuffering(false)}
               onCanPlay={() => setBuffering(false)}
+              onProgress={e => { const b = e.currentTarget.buffered; setBuffered(b.length ? b.end(b.length - 1) : 0) }}
               onTimeUpdate={e => setTime(e.currentTarget.currentTime)}
               onLoadedMetadata={e => { setDuration(e.currentTarget.duration); e.currentTarget.playbackRate = rate }}
               onDurationChange={e => setDuration(e.currentTarget.duration)}
               onEnded={ended}
               onError={recover} onStalled={() => { if (media.current && media.current.readyState < 2) recover() }}
-              onClick={() => isVideo && toggle()} onDoubleClick={() => isVideo && fullscreen()} />
+              onClick={onStageClick} onDoubleClick={onStageDouble} />
             {current && !isVideo && (
-              <div className="art nm-inset">
-                <FileTypeIcon kind="audio" size={page ? 120 : mode === 'preview' ? 96 : 36} />
-                {page && <span className={'eq' + (playing ? ' on' : '')} aria-hidden="true"><i /><i /><i /><i /><i /></span>}
+              <div className="art" onClick={onStageClick}>
+                <span className="disc"><FileTypeIcon kind="audio" size={page ? 72 : mode === 'preview' ? 56 : 28} /></span>
+                {overlay && <span className={'eq' + (playing ? ' on' : '')} aria-hidden="true"><i /><i /><i /><i /><i /></span>}
               </div>
             )}
             {!current && page && (
-              <div className="art nm-inset stage-empty"><PlayIcon width={56} height={56} /><strong>Nothing is playing</strong><span className="muted small">Open a song or video from a folder, or pick one from Recent.</span></div>
+              <div className="art stage-empty"><PlayIcon width={52} height={52} /><strong>Nothing is playing</strong><span className="small">Open a song or video from a folder, or pick one from Recent.</span></div>
             )}
             {current && buffering && <span className="stage-spin" role="status" aria-label="Loading" />}
-            {current && page && isVideo && !playing && !buffering && (
-              <button className="stage-play" onClick={toggle} aria-label="Play"><PlayIcon width={40} height={40} /></button>
+            {overlay && isVideo && !buffering && (!playing || (touch.current && chromeActive)) && (
+              <button className="stage-play" onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}>
+                {playing ? <PauseIcon width={40} height={40} /> : <PlayIcon width={40} height={40} />}
+              </button>
+            )}
+            {flash && <span key={flash.n} className={'seek-flash ' + flash.side} aria-hidden="true">{flash.side === 'l' ? '−10 s' : '+10 s'}</span>}
+            {overlay && (
+              <StageControls
+                visible={showChrome} isVideo={!!isVideo} playing={playing} time={time} duration={duration} buffered={buffered} volume={volume}
+                onSeek={onSeek} onToggle={toggle} onNext={next} onPrev={prev} onMute={toggleMute} onVolume={setVolume}
+                rate={rate} rates={RATES} onRate={setRate} sleepValue={sleepValue} sleepOptions={SLEEP_OPTIONS} onSleep={chooseSleep}
+                shuffle={shuffle} onShuffle={toggleShuffle} repeat={repeat} onRepeat={cycleRepeat}
+                canPip={!!isVideo && !!document.pictureInPictureEnabled} onPip={pip} fullscreen={isFullscreen} onFullscreen={fullscreen}
+                onMenuChange={setMenuOpen}
+              />
             )}
           </div>
 
@@ -411,31 +484,27 @@ export function PlayerProvider({ children, recents, fav }: { children: ReactNode
                 <strong className="ellipsis" role={page ? 'heading' : undefined} aria-level={page ? 1 : undefined}>{stripExt(current.name)}</strong>
                 <span className="muted small ellipsis">
                   {page
-                    ? `${folderName} · ${current.kind === 'video' ? 'Video' : 'Music'} · ${formatSize(current.size)}`
+                    ? `${folderName} · ${current.kind === 'video' ? 'Video' : 'Music'} · ${formatSize(current.size)}${queue.length > 1 ? ` · ${index + 1} of ${queue.length}` : ''}`
                     : `${queue.length > 1 ? `${index + 1} of ${queue.length}` : 'Now playing'} · ${formatTime(time)} / ${formatTime(duration)}`}
-                  {sleepLeft > 0 ? ` · Sleep in ${sleepLeft} min` : sleep.kind === 'end' ? ' · Sleep at end' : ''}
+                  {sleepSubtitle}
                 </span>
-                {page && upNext && <span className="muted small ellipsis">Up next: {stripExt(upNext.name)}</span>}
               </div>
-
-              <div className="seek-row">
-                {page && <span className="muted small time">{formatTime(time)}</span>}
-                <input className="seek" type="range" min={0} max={duration || 0} step={1} value={Math.min(time, duration || 0)}
-                  style={{ ['--pct' as string]: pct + '%' }} onChange={e => onSeek(Number(e.target.value))} aria-label="Seek"
-                  aria-valuetext={`${formatTime(time)} of ${formatTime(duration)}`} />
-                {page && <span className="muted small time">{formatTime(duration)}</span>}
-              </div>
-
-              <div className="dock-controls">
-                <button className={'nm-btn round sm hide-mini' + (shuffle ? ' on' : '')} onClick={toggleShuffle} aria-label="Shuffle" aria-pressed={shuffle}><ShuffleIcon /></button>
-                <button className="nm-btn round skip" onClick={() => seekBy(-10)} aria-label="Back 10 seconds" title="Back 10 s (J)"><span className="skip-label">−10</span></button>
-                <button className="nm-btn round" onClick={prev} aria-label="Previous track" title="Previous (P)"><PrevIcon /></button>
-                <button className="nm-btn round lg accent" onClick={toggle} aria-label={playing ? 'Pause' : 'Play'} title="Play / pause (Space)">{playing ? <PauseIcon /> : <PlayIcon />}</button>
-                <button className="nm-btn round" onClick={next} aria-label="Next track" title="Next (N)"><NextIcon /></button>
-                <button className="nm-btn round skip" onClick={() => seekBy(10)} aria-label="Forward 10 seconds" title="Forward 10 s (L)"><span className="skip-label">+10</span></button>
-                <button className={'nm-btn round sm hide-mini' + (repeat !== 'off' ? ' on' : '')} onClick={cycleRepeat} aria-label={`Repeat: ${repeat}`}>
-                  <RepeatIcon />{repeat === 'one' && <b className="badge">1</b>}</button>
-              </div>
+              {mode === 'mini' && (
+                <>
+                  <div className="seek-row">
+                    <input className="seek" type="range" min={0} max={duration || 0} step={1} value={Math.min(time, duration || 0)}
+                      style={{ ['--pct' as string]: pct + '%' }} onChange={e => onSeek(Number(e.target.value))} aria-label="Seek"
+                      aria-valuetext={`${formatTime(time)} of ${formatTime(duration)}`} />
+                  </div>
+                  <div className="dock-controls">
+                    <button className="nm-btn round" onClick={prev} aria-label="Previous track" title="Previous (P)"><PrevIcon /></button>
+                    <button className="nm-btn round lg accent" onClick={toggle} aria-label={playing ? 'Pause' : 'Play'} title="Play / pause (Space)">{playing ? <PauseIcon /> : <PlayIcon />}</button>
+                    <button className="nm-btn round" onClick={next} aria-label="Next track" title="Next (N)"><NextIcon /></button>
+                    <button className={'nm-btn round sm hide-mini' + (shuffle ? ' on' : '')} onClick={toggleShuffle} aria-label="Shuffle" aria-pressed={shuffle}><ShuffleIcon /></button>
+                    <button className={'nm-btn round sm hide-mini' + (repeat !== 'off' ? ' on' : '')} onClick={cycleRepeat} aria-label={`Repeat: ${repeat}`}><RepeatIcon />{repeat === 'one' && <b className="badge">1</b>}</button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -443,26 +512,27 @@ export function PlayerProvider({ children, recents, fav }: { children: ReactNode
             <div className="dock-side">
               {page && (
                 <>
-                  <button className={'nm-btn sm' + (isFav ? ' on' : '')} onClick={() => { if (ref) { fav.toggle(ref); toast.show(isFav ? 'Removed from favorites' : 'Added to favorites') } }} aria-pressed={isFav}>
-                    {isFav ? <StarFillIcon /> : <StarIcon />} <span className="lbl">Favorite</span></button>
-                  <label className="vol hide-narrow"><button className="icon-btn" onClick={toggleMute} aria-label={volume === 0 ? 'Unmute' : 'Mute'}>{volume === 0 ? <MuteIcon /> : <VolumeIcon />}</button>
-                    <input className="seek short" type="range" min={0} max={1} step={0.02} value={volume} style={{ ['--pct' as string]: volume * 100 + '%' }} onChange={e => setVolume(Number(e.target.value))} aria-label="Volume" /></label>
-                  <select className="nm-select" value={rate} onChange={e => setRate(Number(e.target.value))} aria-label="Playback speed">
-                    {RATES.map(r => <option key={r} value={r}>{r}x</option>)}</select>
-                  <label className="sleep" title="Sleep timer"><MoonIcon />
-                    <select className="nm-select" value={sleepValue} onChange={e => chooseSleep(e.target.value)} aria-label="Sleep timer">
-                      {SLEEP_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
-                  {isVideo && <button className="icon-btn" onClick={pip} aria-label="Picture in picture"><PipIcon /></button>}
-                  {isVideo && <button className="icon-btn" onClick={fullscreen} aria-label="Fullscreen" title="Fullscreen (F)"><ExpandIcon /></button>}
-                  <a className="icon-btn" href={fileUrl(current.share, current.path, true)} aria-label="Download this file" title="Download"><DownloadIcon /></a>
-                  <button className="nm-btn sm" onClick={leavePage} aria-label="Minimize to the mini player"><MinimizeIcon /> <span className="lbl">Mini player</span></button>
+                  <button className={'pill' + (isFav ? ' on' : '')} onClick={() => { if (ref) { fav.toggle(ref); toast.show(isFav ? 'Removed from favorites' : 'Added to favorites') } }} aria-pressed={isFav}>
+                    {isFav ? <StarFillIcon width={18} height={18} /> : <StarIcon width={18} height={18} />}<span>{isFav ? 'Favorited' : 'Favorite'}</span></button>
+                  <a className="pill" href={fileUrl(current.share, current.path, true)}><DownloadIcon width={18} height={18} /><span>Download</span></a>
+                  <button className="pill" onClick={leavePage}><ChevronDownIcon width={18} height={18} /><span>Mini player</span></button>
+                  <span className="spacer" />
+                  <button className="icon-btn" onClick={stop} aria-label="Stop and close the player" title="Stop and close"><CloseIcon /></button>
                 </>
               )}
               {mode === 'preview' && (
-                <button className="nm-btn sm" onClick={openPlayer} aria-label="Open in the media player"><ExpandIcon /> <span className="lbl">Open in player</span></button>
+                <>
+                  <button className="pill" onClick={openPlayer}><ExpandIcon width={18} height={18} /><span>Open in player</span></button>
+                  <span className="spacer" />
+                  <button className="icon-btn" onClick={stop} aria-label="Close preview"><CloseIcon /></button>
+                </>
               )}
-              {mode === 'mini' && <button className="icon-btn" onClick={openPlayer} aria-label="Open the media player"><ExpandIcon /></button>}
-              <button className="icon-btn" onClick={stop} aria-label="Close player"><CloseIcon /></button>
+              {mode === 'mini' && (
+                <>
+                  <button className="icon-btn" onClick={openPlayer} aria-label="Open the media player"><ExpandIcon /></button>
+                  <button className="icon-btn" onClick={stop} aria-label="Close player"><CloseIcon /></button>
+                </>
+              )}
             </div>
           )}
 

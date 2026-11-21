@@ -21,7 +21,8 @@ _Nothing yet._
 - The server's `/api/info` now also reports the phone's name, live camera count and free space.
 
 ### Web client: a real media player
-- Opening a song or video now goes to a full **media player page**, laid out like a video site: a large picture (or cover art), title, seek bar, controls, favorite, volume, speed, sleep timer, picture-in-picture, fullscreen and download, with lists beside it (below it on a phone).
+- Opening a song or video now goes to a full **media player page**, laid out like a video site: a large picture (or cover art) with the controls laid over it, then the title and a few buttons (Favorite, Download, Mini player), with lists beside it (below it on a phone).
+- The controls follow how video sites do it: a thin progress line that shows what is already loaded, round play, previous, next, volume and full-screen buttons, and **one settings menu** for speed, sleep timer, shuffle and repeat. They fade away while a video plays and come back when you move the mouse or tap. Double-click or double-tap the left or right side of a video to jump 10 seconds; the middle goes full screen. Full screen keeps the controls.
 - The lists come only from the **folder of the file that is playing**, in one folder request, with no scanning of shared folders: **All**, **Music**, **Videos**, plus **Recent** and the **Queue**. A single file opened from Recent or Favorites carries on with the rest of its folder.
 - A **Player** button in the top bar and menu is always one tap away. On other pages a mini bar keeps playing and expands back to the page.
 - The old popup is now only the **Quick preview**: right-click a song or video (or press and hold on a touch screen) and choose it. The same menu also plays, queues, favorites and downloads.

@@ -160,3 +160,7 @@ export const StopIcon = (p: IconProps) => <svg {...line({ strokeWidth: 0, fill: 
 export const FlashlightIcon = (p: IconProps) => <svg {...line(p)}><path d="M8 3h8l-1 5H9L8 3Zm1 5-1 3v9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-9l-1-3M12 12v3" /></svg>
 export const PlayerIcon = (p: IconProps) => <svg {...line(p)}><rect x="3.5" y="5" width="17" height="14" rx="3" /><path d="m10.5 9.5 4 2.5-4 2.500v-5Z" fill="currentColor" /></svg>
 export const EyeIcon = (p: IconProps) => <svg {...line(p)}><path d="M2.500 12S6 5.500 12 5.500 21.500 12 21.500 12 18 18.500 12 18.500 2.500 12 2.500 12Z" /><circle cx="12" cy="12" r="2.800" /></svg>
+
+export const FullscreenIcon = (p: IconProps) => <svg {...line(p)}><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
+export const FullscreenExitIcon = (p: IconProps) => <svg {...line(p)}><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></svg>
+export const ChevronDownIcon = (p: IconProps) => <svg {...line(p)}><path d="m6 9 6 6 6-6" /></svg>

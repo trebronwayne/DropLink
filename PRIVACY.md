@@ -28,14 +28,19 @@ runs no servers for DropLink, the developer does not receive or hold your data.
 | Approved devices: the name the person typed, the time, and a hash of its access token | So a device stays approved until you revoke it | Private app storage on the phone |
 | A self-signed security certificate | Encrypts the connection | Private app storage on the phone |
 | Hosting activity log and crash report (times, app events, technical errors, Android version, phone make) | So problems can be found and fixed | Private app storage on the phone. You can clear it any time. |
+| Other DropLink phones you paired with (name, address, access token and certificate pin) | So files can be sent straight to them | Private app storage on the phone. Removed when you unpair. |
 | Hotspot name and password you optionally type to draw the "join Wi-Fi" QR code | Only to draw that code | Private app storage on the phone. Never sent over the network. |
 | **Host a page** (optional): the website folder you choose, accounts you create (passwords stored only as salted hashes), and information that visitors submit through your page | To run your page | Private app storage on the phone |
 
 ### In the browser of a connected device (the web client)
 
 - **Cookies:** a session cookie that keeps the device approved, and, if you use a hosted page with sign-in, a session cookie for that sign-in. They are needed for the service to work and are not used for tracking.
-- **Local storage:** theme and accent choice, favourites, recently opened items, the music queue and position, and cached folder lists. These stay in that browser and can be cleared in its settings.
-- **Camera:** only if you tap **Scan QR code**, and only to read the code. Nothing is recorded or sent anywhere.
+- **Local storage:** theme and accent choice, favourites, recently opened items, the music queue and position, cached folder lists, camera and player preferences, and saved camera snapshots. These stay in that browser and can be cleared in its settings.
+- **Camera (QR code):** only if you tap **Scan QR code**, and only to read the code. Nothing is recorded or sent anywhere.
+- **Camera Nodes:** a browser shares its camera, microphone or flashlight only if its user chooses **Share this device**, the browser asks permission, and the phone's owner allows it (or has chosen always allow). Picture and sound go directly between the browsers on the local network. They do not pass through or get stored on the phone, and nothing goes to the developer. The phone only helps browsers find each other and sees which devices are sharing.
+- **Snapshots, recordings, motion alerts and talk:** snapshots and recordings are saved only in the watcher's own browser or downloads. Motion alerts are worked out in the watcher's browser. Two-way talk uses the watcher's microphone only while talking, and the shared device shows when someone is talking. A small last-seen preview image of an offline camera is kept in the watching browser's local storage.
+- **Phone to phone:** paired phones keep, in private storage, the other phone's name, address and access token. Files go directly between the two phones, encrypted, and the receiving owner can still ask, always allow or block.
+- **Skipping the browser warning:** if the owner turns this on, traffic is not encrypted. It is off by default and meant only for a network you trust.
 - **Offline copy:** where the browser allows it, a saved copy of the app screen so it opens quickly.
 
 ### Information you choose to send

@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<paths>
-    <!-- Received files on Android 8 and 9 are kept in the app's own Downloads folder. -->
-    <external-files-path name="received" path="Download/" />
-</paths>
